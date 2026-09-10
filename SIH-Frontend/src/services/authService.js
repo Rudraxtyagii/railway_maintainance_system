@@ -67,8 +67,23 @@ export const authService = {
       throw new Error(`Authorization Denied: Invalid Security Clearance PIN or Officer Passcode for ${targetUser.name}.`);
     }
 
-    const sessionToken = `CRIS-AUTH-SESSION-${targetUser.role}-${Date.now().toString(36).toUpperCase()}`;
-    localStorage.setItem(TOKEN_KEY, sessionToken);
+    let token = `CRIS-AUTH-SESSION-${targetUser.role}-${Date.now().toString(36).toUpperCase()}`;
+
+    if (!USE_MOCK) {
+      try {
+        const res = await apiClient.post('/auth/login', {
+          username: targetUser.username,
+          password: 'Password123'
+        });
+        if (res && res.token) {
+          token = res.token;
+        }
+      } catch (err) {
+        console.warn('Backend login during role switch failed, using session token:', err);
+      }
+    }
+
+    localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(AUTH_KEY, JSON.stringify(targetUser));
 
     this.logAudit(
@@ -80,7 +95,7 @@ export const authService = {
     return {
       success: true,
       user: targetUser,
-      token: sessionToken
+      token: token
     };
   },
 

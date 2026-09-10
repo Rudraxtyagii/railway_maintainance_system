@@ -7,7 +7,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - RAILBLOCK_JWT_SECRET=super-secret-railblock-key-2026
+      - RAILBLOCK_JWT_SECRET=super-secret-railblock-key-2026-production-secure
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
     networks:
