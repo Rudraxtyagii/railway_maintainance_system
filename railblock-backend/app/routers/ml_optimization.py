@@ -146,19 +146,26 @@ def _predict_task_ml(task: dict, weather_factor: str = "Clear", night_shift: boo
     )
 
 
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.db_models import TaskDB
+
 @router.post("/predict-duration", response_model=MLDurationBatchResponse)
-def predict_durations(body: MLDurationBatchRequest):
+def predict_durations(body: MLDurationBatchRequest, db: Session = Depends(get_db)):
     """
     ML Batch Inference: Predicts actual execution duration, overrun risk,
     and recommended safety margins across pending departmental block requests.
     """
+    db_tasks = db.query(TaskDB).all()
+    all_tasks = [t.to_dict() for t in db_tasks] if db_tasks else TASKS
+
     if body.taskIds:
-        target_tasks = [t for t in TASKS if t["id"] in body.taskIds]
+        target_tasks = [t for t in all_tasks if t["id"] in body.taskIds]
     else:
-        target_tasks = [t for t in TASKS if t["status"] == "Pending"]
+        target_tasks = [t for t in all_tasks if t.get("status") == "Pending"]
 
     if not target_tasks:
-        target_tasks = TASKS[:10]  # fallback to sample
+        target_tasks = all_tasks[:10]  # fallback to sample
 
     predictions: List[MLTaskPrediction] = [
         _predict_task_ml(
@@ -184,12 +191,13 @@ def predict_durations(body: MLDurationBatchRequest):
 
 
 @router.get("/cluster-bundles", response_model=List[MLBundleSynergy])
-def get_ml_bundle_clusters():
+def get_ml_bundle_clusters(db: Session = Depends(get_db)):
     """
     ML Spatial-Temporal Clustering: Evaluates cross-departmental compatibility
     to recommend optimal shadow bundling combinations with safety indexes.
     """
-    pending_tasks = [t for t in TASKS if t["status"] == "Pending"]
+    db_tasks = db.query(TaskDB).filter(TaskDB.status == "Pending").all()
+    pending_tasks = [t.to_dict() for t in db_tasks] if db_tasks else [t for t in TASKS if t.get("status") == "Pending"]
     bundles_synergies: List[MLBundleSynergy] = []
 
     # Group tasks by corridor and date
@@ -197,6 +205,7 @@ def get_ml_bundle_clusters():
     for t in pending_tasks:
         key = (t["corridor"], t["requestedDate"])
         groups.setdefault(key, []).append(t)
+
 
     bundle_idx = 201
     for (corridor, date), tasks_in_group in groups.items():
@@ -302,12 +311,13 @@ def assess_block_risk(body: MLRiskAssessmentRequest):
 
 
 @router.get("/insights", response_model=MLInsightsSummary)
-def get_ml_insights():
+def get_ml_insights(db: Session = Depends(get_db)):
     """
     Network-wide ML intelligence summary for decision support dashboards.
     """
-    pending = [t for t in TASKS if t["status"] == "Pending"]
-    total = len(pending) if pending else 128
+    db_pending = db.query(TaskDB).filter(TaskDB.status == "Pending").count()
+    total = db_pending if db_pending > 0 else len([t for t in TASKS if t["status"] == "Pending"]) or 128
+
 
     return MLInsightsSummary(
         totalAnalyzedTasks=total,

@@ -1,6 +1,11 @@
+import os
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from alembic.config import Config
+from alembic import command
 
 from app.database import engine, Base
 from app.db_init import init_db
@@ -21,10 +26,26 @@ from app.routers import (
     tasks,
 )
 
+logger = logging.getLogger("railblock.main")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize SQLite database tables and seed Indian Railways datasets
+    # Run Alembic migrations if alembic.ini is present
+    ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "alembic.ini")
+    if not os.path.exists(ini_path):
+        ini_path = "alembic.ini"
+
+    try:
+        if os.path.exists(ini_path):
+            logger.info("Executing Alembic migrations...")
+            alembic_cfg = Config(ini_path)
+            command.upgrade(alembic_cfg, "head")
+            logger.info("Alembic migrations completed successfully.")
+    except Exception as e:
+        logger.warning(f"Alembic migration notice: {e}. Falling back to create_all.")
+
+    # Initialize tables and seed Indian Railways datasets if empty
     init_db()
     yield
 
@@ -68,9 +89,15 @@ app.include_router(notifications.router)
 
 @app.get("/", tags=["Health"])
 def root():
-    return {"service": "RAILBLOCK API", "status": "ok", "database": "SQLite / SQLAlchemy Persistent Store"}
+    return {"service": "RAILBLOCK API", "status": "ok", "database": "PostgreSQL 16 / SQLAlchemy Persistent Store"}
 
 
 @app.get("/health", tags=["Health"])
 def health():
-    return {"status": "healthy", "db_status": "connected"}
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "healthy", "db_status": "connected", "database": "PostgreSQL 16"}
+    except Exception as e:
+        return {"status": "unhealthy", "db_status": "disconnected", "error": str(e)}
+

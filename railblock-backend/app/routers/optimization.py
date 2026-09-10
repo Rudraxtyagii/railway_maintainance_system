@@ -25,8 +25,14 @@ from datetime import datetime
 from typing import Dict, List
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
+from app.database import get_db
+from app.db_models import (
+    TaskDB, CorridorWindowDB, CorridorDB, ConflictDB,
+    BundleDB, ScheduleDB, OptimizationRunDB
+)
 from app.data import (
     BUNDLES,
     CONFLICTS,
@@ -53,8 +59,11 @@ def _in_range(date_str: str, start: str, end: str) -> bool:
     return start <= date_str <= end
 
 
-def _corridor_name(code: str) -> str:
-    corridor = next((c for c in CORRIDORS if c["code"] == code), None)
+def _corridor_name_from_db_or_data(code: str, db: Session) -> str:
+    c = db.query(CorridorDB).filter(CorridorDB.code == code).first()
+    if c:
+        return c.name
+    corridor = next((cor for cor in CORRIDORS if cor["code"] == code), None)
     return corridor["name"] if corridor else code
 
 
@@ -66,80 +75,85 @@ def _format_date(date_str: str) -> str:
 
 
 @router.get("/inputs")
-def get_optimization_inputs():
+def get_optimization_inputs(db: Session = Depends(get_db)):
     """
     Pre-run summary the frontend shows before the user hits "Run
     Optimization" -- counts of what the solver would have to work with
     right now, computed live from current task/window/conflict/bundle state.
     """
-    pending_tasks = [t for t in TASKS if t["status"] == "Pending"]
-    high_priority = [t for t in pending_tasks if t["severity"] in ("High", "Critical")]
-    available_windows = [w for w in CORRIDOR_WINDOWS if w["status"] == "Available"]
-    open_conflicts = [c for c in CONFLICTS if c["status"] == "Open"]
-    candidate_bundles = [b for b in BUNDLES if b["status"] == "Candidate"]
-    corridors_covered = {t["corridor"] for t in pending_tasks}
+    db_tasks = db.query(TaskDB).filter(TaskDB.status == "Pending").all()
+    tasks_list = [t.to_dict() for t in db_tasks] if db_tasks else [t for t in TASKS if t["status"] == "Pending"]
 
-    if pending_tasks:
-        dates = sorted(t["requestedDate"] for t in pending_tasks)
-        date_range = f"{_format_date(dates[0])} \u2013 {_format_date(dates[-1])}"
+    high_priority = [t for t in tasks_list if t["severity"] in ("High", "Critical")]
+
+    db_windows = db.query(CorridorWindowDB).filter(CorridorWindowDB.status == "Available").all()
+    windows_list = [w.to_dict() for w in db_windows] if db_windows else [w for w in CORRIDOR_WINDOWS if w["status"] == "Available"]
+
+    db_conflicts = db.query(ConflictDB).filter(ConflictDB.status == "Open").all()
+    conflicts_list = [c.to_dict() for c in db_conflicts] if db_conflicts else [c for c in CONFLICTS if c["status"] == "Open"]
+
+    db_bundles = db.query(BundleDB).filter(BundleDB.status == "Candidate").all()
+    bundles_list = [b.to_dict() for b in db_bundles] if db_bundles else [b for b in BUNDLES if b["status"] == "Candidate"]
+
+    corridors_covered = {t["corridor"] for t in tasks_list}
+
+    if tasks_list:
+        dates = sorted(t["requestedDate"] for t in tasks_list if t.get("requestedDate"))
+        date_range = f"{_format_date(dates[0])} \u2013 {_format_date(dates[-1])}" if dates else ""
     else:
         date_range = ""
 
     return {
-        "totalPendingTasks": len(pending_tasks),
+        "totalPendingTasks": len(tasks_list),
         "highPriorityTasks": len(high_priority),
-        "availableWindows": len(available_windows),
-        "detectedConflicts": len(open_conflicts),
-        "bundleCandidates": len(candidate_bundles),
+        "availableWindows": len(windows_list),
+        "detectedConflicts": len(conflicts_list),
+        "bundleCandidates": len(bundles_list),
         "corridorsCovered": len(corridors_covered),
         "targetDateRange": date_range,
     }
 
 
 @router.post("/run", response_model=OptimizationResponse)
-def run_optimization(body: OptimizationRequest):
+def run_optimization(body: OptimizationRequest, db: Session = Depends(get_db)):
     started = time.perf_counter()
 
-    # The frontend's "RUN OPTIMIZATION" button doesn't collect a corridor
-    # or date-range selection -- it just calls this with an empty body.
-    # Default to every corridor, and a date window wide enough to cover
-    # every currently Pending task (falling back to "everything" if there
-    # are none), so an empty request still does something useful.
-    corridors = body.corridors or [c["code"] for c in CORRIDORS]
+    db_corridors = db.query(CorridorDB).all()
+    all_corridor_codes = [c.code for c in db_corridors] if db_corridors else [c["code"] for c in CORRIDORS]
+    corridors = body.corridors or all_corridor_codes
+
+    db_pending = db.query(TaskDB).filter(TaskDB.status == "Pending").all()
+    raw_tasks = [t.to_dict() for t in db_pending] if db_pending else TASKS
 
     if body.dateRange and body.dateRange.start and body.dateRange.end:
         range_start, range_end = body.dateRange.start, body.dateRange.end
     else:
-        pending_dates = [t["requestedDate"] for t in TASKS if t["status"] == "Pending"]
+        pending_dates = [t["requestedDate"] for t in raw_tasks if t["status"] == "Pending" and t.get("requestedDate")]
         if pending_dates:
             range_start, range_end = min(pending_dates), max(pending_dates)
         else:
             range_start, range_end = "0000-01-01", "9999-12-31"
 
     eligible_tasks = [
-        t for t in TASKS
+        t for t in raw_tasks
         if t["status"] == "Pending"
         and t["corridor"] in corridors
-        and _in_range(t["requestedDate"], range_start, range_end)
+        and _in_range(t.get("requestedDate", ""), range_start, range_end)
     ]
     eligible_tasks.sort(key=lambda t: t["priorityScore"], reverse=True)
 
+    db_windows = db.query(CorridorWindowDB).filter(CorridorWindowDB.status == "Available").all()
+    raw_windows = [w.to_dict() for w in db_windows] if db_windows else CORRIDOR_WINDOWS
+
     eligible_windows = [
-        w for w in CORRIDOR_WINDOWS
+        w for w in raw_windows
         if w["status"] == "Available"
         and w["corridor"] in corridors
         and _in_range(w["date"], range_start, range_end)
     ]
     eligible_windows.sort(key=lambda w: (w["date"], w["startTime"]))
 
-    # NOTE ON THE CONCURRENCY MODEL: a "shadow bundle" is multiple departments
-    # (Engineering, Traction Distribution, S&T, ...) working *simultaneously*
-    # under one shared traffic/power block, not one crew after another. So the
-    # block only needs to be as long as its longest constituent task, and the
-    # downtime saved is (sum of what separate blocks would have cost) minus
-    # (that one shared block). This matches the seeded BUN-101 example: three
-    # tasks of 3.0h/2.5h/2.0h bundle into a single 3.0h block, saving 4.5h
-    # (7.5h - 3.0h) versus running each as its own block.
+    # Concurrency Model: Shadow Bundles
     assigned_task_ids: set = set()
     scheduled_blocks: List[dict] = []
     new_bundles: List[dict] = []
@@ -157,8 +171,6 @@ def run_optimization(body: OptimizationRequest):
                 continue
             if task["requestedDate"] != window["date"]:
                 continue
-            # A task can only join this block if it fits standalone within
-            # the window's capacity -- concurrent work, not stacked work.
             if task["durationHours"] > capacity:
                 continue
             packed.append(task)
@@ -176,7 +188,7 @@ def run_optimization(body: OptimizationRequest):
         top_severity = max(packed, key=lambda t: _SEVERITY_RANK.get(t["severity"], 0))["severity"]
         traffic_granted = any(t["requiresTrafficBlock"] for t in packed)
         power_granted = any(t["requiresPowerBlock"] for t in packed)
-        speed_restrictions = [t["speedRestrictionKmph"] for t in packed if t["speedRestrictionKmph"]]
+        speed_restrictions = [t["speedRestrictionKmph"] for t in packed if t.get("speedRestrictionKmph")]
         block_speed_restriction = min(speed_restrictions) if speed_restrictions else None
 
         individual_hours = sum(t["durationHours"] for t in packed)
@@ -186,7 +198,7 @@ def run_optimization(body: OptimizationRequest):
         if len(packed) > 1:
             efficiency_gain = round(((individual_hours - block_duration) / individual_hours) * 100, 1) if individual_hours else 0.0
             bundle_id = next_bundle_id()
-            new_bundles.append({
+            bundle_dict = {
                 "id": bundle_id,
                 "corridor": window["corridor"],
                 "date": window["date"],
@@ -195,13 +207,36 @@ def run_optimization(body: OptimizationRequest):
                 "windowId": window["id"],
                 "downtimeSavedHours": round(individual_hours - block_duration, 2),
                 "status": "Candidate",
-            })
+            }
+            new_bundles.append(bundle_dict)
+
+            # Persist bundle to DB
+            db_bundle = BundleDB(
+                id=bundle_id,
+                code=bundle_id,
+                name=f"Integrated Bundle {bundle_id}",
+                corridor=window["corridor"],
+                date=window["date"],
+                start_time=window["startTime"],
+                end_time=window["endTime"],
+                duration_hours=block_duration,
+                task_ids=task_ids,
+                departments=departments,
+                window_id=window["id"],
+                downtime_saved_hours=round(individual_hours - block_duration, 2),
+                status="Candidate"
+            )
+            db.add(db_bundle)
+
+        corr_name = _corridor_name_from_db_or_data(window["corridor"], db)
+        block_id = next_block_id(window["date"])
+        block_code = next_block_code()
 
         block = {
-            "id": next_block_id(window["date"]),
-            "blockCode": next_block_code(),
+            "id": block_id,
+            "blockCode": block_code,
             "corridor": window["corridor"],
-            "corridorName": _corridor_name(window["corridor"]),
+            "corridorName": corr_name,
             "date": window["date"],
             "startTime": window["startTime"],
             "endTime": window["endTime"],
@@ -220,6 +255,35 @@ def run_optimization(body: OptimizationRequest):
         }
         scheduled_blocks.append(block)
 
+        # Persist block to DB
+        db_schedule = ScheduleDB(
+            id=block_id,
+            block_id=block_id,
+            block_code=block_code,
+            corridor=window["corridor"],
+            corridor_name=corr_name,
+            date=window["date"],
+            start_time=window["startTime"],
+            end_time=window["endTime"],
+            duration_hours=block_duration,
+            departments=departments,
+            task_ids=task_ids,
+            tasks_count=len(packed),
+            priority=top_severity,
+            bundle_id=bundle_id,
+            status="Approved",
+            traffic_block_granted=traffic_granted,
+            power_block_granted=power_granted,
+            controller_approval="Granted (Chief Controller/DLI)",
+            speed_restriction_kmph=block_speed_restriction,
+            efficiency_gain_percent=efficiency_gain,
+            ptw_status="Issued",
+            safety_validated=True,
+            caution_order_generated=False,
+            created_at=datetime.utcnow()
+        )
+        db.add(db_schedule)
+
     scheduled_task_objs = [t for t in eligible_tasks if t["id"] in assigned_task_ids]
     not_scheduled_count = len(eligible_tasks) - len(scheduled_task_objs)
 
@@ -228,21 +292,33 @@ def run_optimization(body: OptimizationRequest):
     saved_hours = round(manual_hours - optimized_hours, 2)
     saved_percent = round((saved_hours / manual_hours) * 100, 1) if manual_hours else 0.0
 
-    # Mark conflicts resolved when every task in the conflict ended up co-scheduled in one block.
+    # Check and resolve conflicts in DB & memory
+    db_conflicts = db.query(ConflictDB).all()
+    conflicts_list = [c.to_dict() for c in db_conflicts] if db_conflicts else CONFLICTS
     conflicts_resolved = 0
-    for conflict in CONFLICTS:
+
+    for conflict in conflicts_list:
         conflict_task_ids = set(conflict["taskIds"])
         if conflict_task_ids and conflict_task_ids.issubset(assigned_task_ids):
             for block in scheduled_blocks:
                 if conflict_task_ids.issubset(set(block["taskIds"])):
                     conflicts_resolved += 1
+                    # Update in DB
+                    c_record = db.query(ConflictDB).filter(ConflictDB.id == conflict["id"]).first()
+                    if c_record:
+                        c_record.status = "Resolved"
                     break
 
     total_window_hours = sum(w["durationHours"] for w in eligible_windows) or 1.0
     utilization = round(min(100.0, (optimized_hours / total_window_hours) * 100), 1)
 
-    for task in scheduled_task_objs:
-        task["status"] = "Scheduled"
+    # Update tasks status to Scheduled in DB
+    for t_obj in scheduled_task_objs:
+        t_obj["status"] = "Scheduled"
+        t_record = db.query(TaskDB).filter(TaskDB.id == t_obj["id"]).first()
+        if t_record:
+            t_record.status = "Scheduled"
+            t_record.updated_at = datetime.utcnow()
 
     SCHEDULES.extend(scheduled_blocks)
     BUNDLES.extend(new_bundles)
@@ -272,14 +348,38 @@ def run_optimization(body: OptimizationRequest):
         "status": "SUCCESS",
     }
 
-    # Keep it retrievable via GET /api/optimization/{id}.
+    # Persist optimization run
+    db_run = OptimizationRunDB(
+        id=optimization_id,
+        engine="Greedy Constraint Satisfaction + Shadow Bundling Solver (v2.4)",
+        execution_time_ms=execution_ms,
+        timestamp=now_iso(),
+        summary=result["summary"],
+        scheduled_blocks=scheduled_blocks,
+        bundles=new_bundles,
+        status="SUCCESS",
+        created_at=datetime.utcnow()
+    )
+    db.add(db_run)
+    db.commit()
+
+    # In-memory retrieval cache
     OPTIMIZATION_RUNS[optimization_id] = result
 
     return result
 
 
 @router.get("/{optimization_id}")
-def get_optimization_result(optimization_id: str):
+def get_optimization_result(optimization_id: str, db: Session = Depends(get_db)):
+    db_run = db.query(OptimizationRunDB).filter(OptimizationRunDB.id == optimization_id).first()
+    if db_run:
+        return {
+            "id": db_run.id,
+            "status": "COMPLETED",
+            "summary": db_run.summary,
+            "scheduledBlocks": db_run.scheduled_blocks,
+        }
+
     run = OPTIMIZATION_RUNS.get(optimization_id)
     if run is None:
         raise ProblemException(404, "Not Found", f"Optimization run '{optimization_id}' does not exist.")
@@ -288,4 +388,4 @@ def get_optimization_result(optimization_id: str):
         "status": "COMPLETED",
         "summary": run["summary"],
         "scheduledBlocks": run["scheduledBlocks"],
-    }
+    }

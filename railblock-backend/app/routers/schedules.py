@@ -1,8 +1,11 @@
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
+from app.database import get_db
+from app.db_models import ScheduleDB
 from app.data import SCHEDULES, find_schedule, now_iso
 from app.errors import ProblemException
 from app.models import ScheduledBlock, ValidationCheck, ValidationResult
@@ -18,52 +21,102 @@ def list_schedules(
     corridor: Optional[str] = Query(None),
     date: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
 ):
+    query = db.query(ScheduleDB)
+    if corridor and corridor.upper() != "ALL":
+        query = query.filter(ScheduleDB.corridor.ilike(f"%{corridor}%"))
+    if date:
+        query = query.filter(ScheduleDB.date == date)
+    if status and status.upper() != "ALL":
+        query = query.filter(ScheduleDB.status.ilike(f"%{status}%"))
+
+    schedules = query.all()
+    if schedules:
+        return [s.to_dict() for s in schedules]
+
     results = SCHEDULES
-    if corridor:
+    if corridor and corridor.upper() != "ALL":
         results = [s for s in results if s["corridor"].lower() == corridor.lower()]
     if date:
         results = [s for s in results if s["date"] == date]
-    if status:
+    if status and status.upper() != "ALL":
         results = [s for s in results if s["status"].lower() == status.lower()]
     return results
 
 
 @router.post("/{schedule_id}/approve", response_model=ScheduledBlock)
-def approve_schedule(schedule_id: str):
-    block = find_schedule(schedule_id)
-    if block is None:
+def approve_schedule(schedule_id: str, db: Session = Depends(get_db)):
+    block = db.query(ScheduleDB).filter(ScheduleDB.id == schedule_id).first()
+    if block is not None:
+        if block.status == "Published":
+            raise ProblemException(409, "Conflict", f"Block '{schedule_id}' has already been published.")
+        block.status = "Approved"
+        db.commit()
+        db.refresh(block)
+
+        mem = find_schedule(schedule_id)
+        if mem:
+            mem["status"] = "Approved"
+
+        return block.to_dict()
+
+    mem = find_schedule(schedule_id)
+    if mem is None:
         raise ProblemException(404, "Not Found", f"Scheduled block '{schedule_id}' does not exist.")
-    if block["status"] == "Published":
+    if mem["status"] == "Published":
         raise ProblemException(409, "Conflict", f"Block '{schedule_id}' has already been published.")
-    block["status"] = "Approved"
-    return block
+    mem["status"] = "Approved"
+    return mem
 
 
 @router.post("/{schedule_id}/publish", response_model=ScheduledBlock)
-def publish_schedule(schedule_id: str):
-    block = find_schedule(schedule_id)
-    if block is None:
+def publish_schedule(schedule_id: str, db: Session = Depends(get_db)):
+    block = db.query(ScheduleDB).filter(ScheduleDB.id == schedule_id).first()
+    if block is not None:
+        if block.status != "Approved":
+            raise ProblemException(
+                409, "Conflict",
+                f"Block '{schedule_id}' must be Approved before it can be published to COA/FOIS "
+                f"(current status: '{block.status}').",
+            )
+        block.status = "Published"
+        db.commit()
+        db.refresh(block)
+
+        mem = find_schedule(schedule_id)
+        if mem:
+            mem["status"] = "Published"
+
+        return block.to_dict()
+
+    mem = find_schedule(schedule_id)
+    if mem is None:
         raise ProblemException(404, "Not Found", f"Scheduled block '{schedule_id}' does not exist.")
-    if block["status"] != "Approved":
+    if mem["status"] != "Approved":
         raise ProblemException(
             409, "Conflict",
             f"Block '{schedule_id}' must be Approved before it can be published to COA/FOIS "
-            f"(current status: '{block['status']}').",
+            f"(current status: '{mem['status']}').",
         )
-    block["status"] = "Published"
-    return block
+    mem["status"] = "Published"
+    return mem
+
 
 
 @router.post("/validate")
-def validate_all_schedules():
+def validate_all_schedules(db: Session = Depends(get_db)):
     """
     Whole-schedule validation report used by the Validation page: runs the
     5-point statutory check across every scheduled block at once, rather
     than one block at a time.
     """
     now = now_iso()
-    active_blocks = [s for s in SCHEDULES if s["status"] != "Rejected"]
+    db_schedules = db.query(ScheduleDB).filter(ScheduleDB.status != "Rejected").all()
+    if db_schedules:
+        active_blocks = [s.to_dict() for s in db_schedules]
+    else:
+        active_blocks = [s for s in SCHEDULES if s["status"] != "Rejected"]
 
     def _overlaps(a: dict, b: dict) -> bool:
         return (
@@ -201,20 +254,27 @@ def validate_all_schedules():
 
 
 @router.post("/{schedule_id}/validate", response_model=ValidationResult)
-def validate_schedule(schedule_id: str):
-    block = find_schedule(schedule_id)
-    if block is None:
-        raise ProblemException(404, "Not Found", f"Scheduled block '{schedule_id}' does not exist.")
+def validate_schedule(schedule_id: str, db: Session = Depends(get_db)):
+    db_block = db.query(ScheduleDB).filter(ScheduleDB.id == schedule_id).first()
+    if db_block is not None:
+        block = db_block.to_dict()
+    else:
+        block = find_schedule(schedule_id)
+        if block is None:
+            raise ProblemException(404, "Not Found", f"Scheduled block '{schedule_id}' does not exist.")
+
+    db_all = db.query(ScheduleDB).all()
+    all_schedules = [s.to_dict() for s in db_all] if db_all else SCHEDULES
 
     checks: List[ValidationCheck] = []
 
     # 1. Timetable clash — does another block on the same corridor/date overlap this window?
     clash = any(
-        other is not block
+        other["id"] != block["id"]
         and other["corridor"] == block["corridor"]
         and other["date"] == block["date"]
         and not (other["endTime"] <= block["startTime"] or other["startTime"] >= block["endTime"])
-        for other in SCHEDULES
+        for other in all_schedules
     )
     checks.append(ValidationCheck(
         check="Timetable clash", passed=not clash,
@@ -254,4 +314,4 @@ def validate_schedule(schedule_id: str):
     ))
 
     all_passed = all(c.passed for c in checks)
-    return ValidationResult(scheduleId=schedule_id, allPassed=all_passed, checks=checks)
+    return ValidationResult(scheduleId=schedule_id, allPassed=all_passed, checks=checks)

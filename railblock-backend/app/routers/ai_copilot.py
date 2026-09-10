@@ -282,10 +282,12 @@ def apply_ai_recommendation(body: ApplyRecommendationRequest, db: Session = Depe
         block_id=block_id,
         block_code=block_code,
         corridor=body.corridor,
+        corridor_name=body.corridor,
         date=body.date,
         start_time=body.startTime,
         end_time=body.endTime,
         duration_hours=body.durationHours,
+
         status="Approved",
         departments=body.departments,
         task_ids=body.taskIds,

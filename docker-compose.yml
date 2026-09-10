@@ -1,15 +1,39 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: railblock-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: railblock
+      POSTGRES_PASSWORD: railblock_secret_2026
+      POSTGRES_DB: railblock_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U railblock -d railblock_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - railblock-network
+
   backend:
     build:
       context: ./railblock-backend
       dockerfile: Dockerfile
     container_name: railblock-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
+      - DATABASE_URL=postgresql://railblock:railblock_secret_2026@db:5432/railblock_db
       - RAILBLOCK_JWT_SECRET=super-secret-railblock-key-2026-production-secure
       - PYTHONUNBUFFERED=1
-    restart: unless-stopped
     networks:
       - railblock-network
 
@@ -32,3 +56,8 @@ services:
 networks:
   railblock-network:
     driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+

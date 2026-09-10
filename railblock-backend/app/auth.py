@@ -79,7 +79,20 @@ def get_current_user(
 
     payload = decode_access_token(credentials.credentials)
     username = payload.get("sub")
+
     record = USERS.get(username)
-    if record is None:
-        raise ProblemException(401, "Unauthorized", "Token does not correspond to a known user.")
-    return record["user"]
+    if record is not None:
+        return record["user"]
+
+    try:
+        from app.database import SessionLocal
+        from app.db_models import UserDB
+        with SessionLocal() as db:
+            db_user = db.query(UserDB).filter((UserDB.username == username) | (UserDB.id == username)).first()
+            if db_user:
+                return db_user.to_dict()
+    except Exception:
+        pass
+
+    raise ProblemException(401, "Unauthorized", "Token does not correspond to a known user.")
+
