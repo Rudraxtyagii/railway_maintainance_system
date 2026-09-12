@@ -1,7 +1,7 @@
 from typing import List
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.auth import get_current_user
 from app.database import get_db
@@ -11,7 +11,6 @@ from app.errors import ProblemException
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"], dependencies=[Depends(get_current_user)])
 
-# Where clicking a notification should take the user, based on what it's about.
 CATEGORY_TO_URL = {
     "Task": "/block-requests",
     "Conflict": "/conflicts",
@@ -35,12 +34,43 @@ def _serialize(n: dict) -> dict:
         "actionUrl": CATEGORY_TO_URL.get(n.get("category"), DEFAULT_ACTION_URL),
         "category": n.get("category", "Task"),
         "relatedId": n.get("relatedId"),
+        "recipientUserId": n.get("recipientUserId"),
+        "recipientDepartment": n.get("recipientDepartment"),
+        "recipientRole": n.get("recipientRole"),
     }
 
 
 @router.get("")
-def list_notifications(db: Session = Depends(get_db)):
-    db_notifications = db.query(NotificationDB).order_by(NotificationDB.created_at.desc()).all()
+def list_notifications(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    user_id = current_user.get("id")
+    user_role = current_user.get("role")
+    user_dept = current_user.get("department")
+
+    query = db.query(NotificationDB)
+
+    if user_role == "PLANNER_ADMIN":
+        query = query.filter(
+            or_(
+                NotificationDB.recipient_role.in_(["PLANNER_ADMIN", "ALL"]),
+                NotificationDB.recipient_user_id == user_id,
+                (NotificationDB.recipient_user_id.is_(None) & NotificationDB.recipient_department.is_(None) & NotificationDB.recipient_role.is_(None))
+            )
+        )
+    else:
+        query = query.filter(
+            or_(
+                NotificationDB.recipient_user_id == user_id,
+                NotificationDB.recipient_department == user_dept,
+                NotificationDB.recipient_department.ilike(f"%{user_dept}%"),
+                NotificationDB.recipient_role == "ALL",
+                (NotificationDB.recipient_user_id.is_(None) & NotificationDB.recipient_department.is_(None) & NotificationDB.recipient_role.is_(None))
+            )
+        )
+
+    db_notifications = query.order_by(NotificationDB.created_at.desc()).all()
     if db_notifications:
         return [n.to_dict() for n in db_notifications]
     return [_serialize(n) for n in NOTIFICATIONS]
@@ -70,8 +100,32 @@ def mark_notification_read(notification_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/read-all")
-def mark_all_read(db: Session = Depends(get_db)):
-    db_notifications = db.query(NotificationDB).all()
+def mark_all_read(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    user_id = current_user.get("id")
+    user_role = current_user.get("role")
+    user_dept = current_user.get("department")
+
+    query = db.query(NotificationDB)
+    if user_role == "PLANNER_ADMIN":
+        query = query.filter(
+            or_(
+                NotificationDB.recipient_role.in_(["PLANNER_ADMIN", "ALL"]),
+                NotificationDB.recipient_user_id == user_id,
+                (NotificationDB.recipient_user_id.is_(None) & NotificationDB.recipient_department.is_(None) & NotificationDB.recipient_role.is_(None))
+            )
+        )
+    else:
+        query = query.filter(
+            or_(
+                NotificationDB.recipient_user_id == user_id,
+                NotificationDB.recipient_department == user_dept,
+                NotificationDB.recipient_department.ilike(f"%{user_dept}%"),
+                NotificationDB.recipient_role == "ALL",
+                (NotificationDB.recipient_user_id.is_(None) & NotificationDB.recipient_department.is_(None) & NotificationDB.recipient_role.is_(None))
+            )
+        )
+
+    db_notifications = query.all()
     if db_notifications:
         for n in db_notifications:
             n.read = True

@@ -6,9 +6,9 @@ const TOKEN_KEY = 'railblock_token';
 const AUDIT_KEY = 'railblock_audit_logs';
 
 export const authService = {
-  async login(username, password) {
+  async login(usernameOrEmail, password) {
     try {
-      const res = await apiClient.post('/auth/login', { username, password });
+      const res = await apiClient.post('/auth/login', { username: usernameOrEmail, password });
       if (res && res.token) {
         localStorage.setItem(TOKEN_KEY, res.token);
         localStorage.setItem(AUTH_KEY, JSON.stringify(res.user));
@@ -22,7 +22,7 @@ export const authService = {
       console.warn('Backend login failed, checking local mock users:', err);
     }
 
-    const matched = MOCK_USERS.find(u => u.username === username || u.email === username);
+    const matched = MOCK_USERS.find(u => u.username === usernameOrEmail || u.email === usernameOrEmail);
     const user = matched || MOCK_USERS[0];
 
     const token = `CRIS-AUTH-JWT-${user.id}-${Date.now()}`;
@@ -30,6 +30,10 @@ export const authService = {
     localStorage.setItem(AUTH_KEY, JSON.stringify(user));
     this.logAudit('USER_LOGIN', user, 'Direct operational authentication (fallback)');
     return user;
+  },
+
+  getToken() {
+    return localStorage.getItem(TOKEN_KEY);
   },
 
   getCurrentUser() {
@@ -44,56 +48,17 @@ export const authService = {
     return null;
   },
 
-  async verifyAndSwitchRole(userId, pinOrPasscode) {
-    const previousUser = this.getCurrentUser();
-    let users = await this.getRegisteredUsers();
-    let targetUser = users.find(u => u.id === userId || u.username === userId || u.role === userId);
-    if (!targetUser) targetUser = users[0];
-
-    const validPin = targetUser.pin || '1234';
-    const validPass = targetUser.passcode || 'CRIS@2026';
-    const cleanInput = (pinOrPasscode || '').trim();
-
-    const isAuthorized =
-      cleanInput === validPin ||
-      cleanInput === validPass ||
-      cleanInput === '1234' ||
-      cleanInput === 'Password123!' ||
-      cleanInput.toLowerCase() === targetUser.username.toLowerCase();
-
-    if (!isAuthorized) {
-      throw new Error(`Authorization Denied: Invalid Security Clearance PIN or Officer Passcode for ${targetUser.name}.`);
-    }
-
-    let token = `CRIS-AUTH-SESSION-${targetUser.role}-${Date.now().toString(36).toUpperCase()}`;
-
+  async fetchCurrentUser() {
     try {
-      const res = await apiClient.post('/auth/login', {
-        username: targetUser.username,
-        password: 'Password123!'
-      });
-      if (res && res.token) {
-        token = res.token;
-        targetUser = res.user;
+      const res = await apiClient.get('/auth/me');
+      if (res && res.id) {
+        localStorage.setItem(AUTH_KEY, JSON.stringify(res));
+        return res;
       }
     } catch (err) {
-      console.warn('Backend login during role switch notice:', err);
+      // ignore
     }
-
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(AUTH_KEY, JSON.stringify(targetUser));
-
-    this.logAudit(
-      'ROLE_SWITCH_AUTHORIZED',
-      targetUser,
-      `Operational authority assumed from ${previousUser?.role || 'GUEST'} to ${targetUser.role} (${targetUser.designation}) via verified clearance.`
-    );
-
-    return {
-      success: true,
-      user: targetUser,
-      token: token
-    };
+    return this.getCurrentUser();
   },
 
   async getRegisteredUsers() {
@@ -106,6 +71,16 @@ export const authService = {
       // fallback
     }
     return MOCK_USERS;
+  },
+
+  async createUser(userData) {
+    const res = await apiClient.post('/auth/users', userData);
+    return res;
+  },
+
+  async updateUser(userId, userData) {
+    const res = await apiClient.put(`/auth/users/${userId}`, userData);
+    return res;
   },
 
   logout() {

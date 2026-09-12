@@ -1,18 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, User, ChevronDown, Check, LogOut, Shield, Train, ExternalLink, Sparkles, Bot, Key, LockKeyhole, Radio } from 'lucide-react';
+import { Bell, User, ChevronDown, LogOut, Shield, Train, Bot, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { notificationService } from '../../services/notificationService';
 
 export const Header = () => {
-  const { user, switchUser, logout, availableUsers, isPlannerAdmin, currentRole, realtimeStatus } = useAuth();
+  const { user, logout, isPlannerAdmin, currentRole, realtimeStatus } = useAuth();
   const navigate = useNavigate();
-  const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [notifications, setNotifications] = useState([]);
 
-  const roleRef = useRef(null);
   const notifRef = useRef(null);
   const userRef = useRef(null);
 
@@ -31,17 +29,14 @@ export const Header = () => {
     fetchLiveNotifications();
 
     const handleLiveEvent = (e) => {
-      const detail = e.detail;
-      if (!detail || detail.type === 'NOTIFICATION_CREATED' || detail.type === 'TASK_CREATED' || detail.type === 'HITL_DECISION_ENTERED' || detail.type === 'SCHEDULE_APPROVED') {
-        fetchLiveNotifications();
-      }
+      fetchLiveNotifications();
     };
 
     window.addEventListener('railblock:realtime_event', handleLiveEvent);
     window.addEventListener('railblock:notification_created', handleLiveEvent);
+    window.addEventListener('railblock:data_changed', handleLiveEvent);
 
     const handleClickOutside = (e) => {
-      if (roleRef.current && !roleRef.current.contains(e.target)) setShowRoleMenu(false);
       if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifMenu(false);
       if (userRef.current && !userRef.current.contains(e.target)) setShowUserMenu(false);
     };
@@ -49,6 +44,7 @@ export const Header = () => {
     return () => {
       window.removeEventListener('railblock:realtime_event', handleLiveEvent);
       window.removeEventListener('railblock:notification_created', handleLiveEvent);
+      window.removeEventListener('railblock:data_changed', handleLiveEvent);
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
@@ -88,7 +84,7 @@ export const Header = () => {
       <div className="px-4 py-2.5 flex items-center justify-between gap-4">
         {/* Left: Branding & Tagline */}
         <div className="flex items-center gap-3">
-          <Link to="/dashboard" className="flex items-center gap-2.5 group">
+          <Link to={isPlannerAdmin ? "/dashboard" : "/block-requests"} className="flex items-center gap-2.5 group">
             <div className="w-9 h-9 rounded bg-rail-900 border border-rail-800 flex items-center justify-center text-ir-saffron shadow-sm group-hover:bg-rail-850 transition-colors">
               <Train className="w-5 h-5" />
             </div>
@@ -102,67 +98,28 @@ export const Header = () => {
                 </span>
               </div>
               <p className="text-[10.5px] text-slate-500 font-medium tracking-tight -mt-0.5">
-                AI-Powered Automatic Block Planning & RAG Command System
+                AI-Powered Automatic Block Planning System
               </p>
             </div>
           </Link>
         </div>
 
-        {/* Right Action Tools: Role Switcher, Quick Links, Notifs, User Profile */}
+        {/* Right Action Tools: Verified Identity Badge, Quick Tools, Notifs, User Profile */}
         <div className="flex items-center gap-2.5">
-          {/* Persona Switcher Dropdown */}
-          <div className="relative" ref={roleRef}>
-            <button
-              onClick={() => setShowRoleMenu(!showRoleMenu)}
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 transition-colors text-xs text-slate-700"
-              title="Switch user role to test departmental isolation & access control"
-            >
-              <Shield className="w-3.5 h-3.5 text-rail-700" />
-              <div className="text-left hidden sm:block">
-                <div className="text-[9px] uppercase font-bold text-slate-400 -mb-0.5 leading-none">RBAC Persona</div>
-                <div className="font-semibold text-slate-800 font-mono text-[11px]">{currentRole}</div>
+          {/* Verified CRIS Identity Badge */}
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-slate-200 bg-slate-50 text-xs text-slate-700 shadow-sm">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-200"></div>
+            <div className="text-left hidden sm:block">
+              <div className="text-[9px] uppercase font-bold text-slate-400 leading-none">Authenticated Officer</div>
+              <div className="font-semibold text-slate-900 font-mono text-[11px] truncate max-w-[140px]">
+                {user?.name || 'Authorized Personnel'}
               </div>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-            </button>
-
-            {showRoleMenu && (
-              <div className="absolute right-0 mt-1.5 w-72 bg-white rounded-lg shadow-elevated border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95">
-                <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  <span>Switch Railways Persona</span>
-                  <Link to="/rbac" onClick={() => setShowRoleMenu(false)} className="text-rail-700 hover:underline">
-                    View Matrix →
-                  </Link>
-                </div>
-                {availableUsers.map((u) => {
-                  const active = u.id === user?.id;
-                  return (
-                    <button
-                      key={u.id}
-                      onClick={() => {
-                        switchUser(u.id);
-                        setShowRoleMenu(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 flex items-start justify-between text-xs hover:bg-slate-50 transition-colors ${active ? 'bg-rail-50/70 font-semibold text-rail-900' : 'text-slate-700'}`}
-                    >
-                      <div>
-                        <div className="font-medium flex items-center gap-1.5">
-                          {u.name}
-                          <span className="text-[9px] px-1 py-0.2 rounded font-mono font-bold text-white bg-slate-700">
-                            {u.role}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-500">{u.designation}</div>
-                      </div>
-                      {active ? (
-                        <Check className="w-4 h-4 text-rail-700 shrink-0 mt-0.5" />
-                      ) : (
-                        <LockKeyhole className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-1" title="Security PIN Authorization Required" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            </div>
+            <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border ${
+              isPlannerAdmin ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+            }`}>
+              {currentRole || 'OFFICER'}
+            </span>
           </div>
 
           {/* Conditional Role Action Tools */}
@@ -183,7 +140,7 @@ export const Header = () => {
                 className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-all hover:shadow"
               >
                 <Bot className="w-3.5 h-3.5 text-indigo-200" />
-                <span>RAIL-GPT (RAG)</span>
+                <span>RAIL-GPT</span>
               </Link>
             </>
           ) : (

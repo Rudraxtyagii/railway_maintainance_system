@@ -66,13 +66,13 @@ def reset_database(
 
     logger.warning(f"DATABASE RESET INITIATED BY ADMIN: {admin_name} ({admin_id})")
 
-    # 1. Purge dynamic operational tables
-    db.query(TaskDB).delete()
-    db.query(ConflictDB).delete()
-    db.query(BundleDB).delete()
-    db.query(ScheduleDB).delete()
+    # 1. Purge dynamic operational tables (Children before Parents to respect Foreign Keys)
     db.query(HITLReviewDB).delete()
     db.query(COAStreamLogDB).delete()
+    db.query(ScheduleDB).delete()
+    db.query(BundleDB).delete()
+    db.query(ConflictDB).delete()
+    db.query(TaskDB).delete()
     db.query(NotificationDB).delete()
     db.query(OptimizationRunDB).delete()
     db.query(DataQualitySampleDB).delete()
@@ -81,6 +81,7 @@ def reset_database(
     windows = db.query(CorridorWindowDB).all()
     for w in windows:
         w.status = "Available"
+        w.conflict_count = 0
 
     # 3. Record Audit Log for the reset
     reset_audit = AuditLogDB(
@@ -103,6 +104,7 @@ def reset_database(
         read=False,
         category="Sync",
         related_id="GLOBAL",
+        recipient_role="ALL",
         created_at=datetime.utcnow()
     )
     db.add(init_notif)
@@ -113,6 +115,8 @@ def reset_database(
         "resetBy": admin_name,
         "timestamp": datetime.utcnow().isoformat() + "Z"
     })
+    broadcast_event("REQUEST_UPDATED", {})
+    broadcast_event("TASK_DELETED", {"all": True})
     broadcast_event("METRICS_UPDATED", {"reason": "DATABASE_RESET"})
     broadcast_event("NOTIFICATION_CREATED", init_notif.to_dict())
 

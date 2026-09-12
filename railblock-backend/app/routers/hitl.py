@@ -45,11 +45,11 @@ def get_pending_hitl_reviews(db: Session = Depends(get_db)):
 def submit_hitl_review_decision(
     body: HITLReviewActionRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_roles("PLANNER_ADMIN", "FIELD_CONTROLLER", "DEPT_ENGINEER"))
+    current_user: dict = Depends(require_roles("PLANNER_ADMIN", "FIELD_CONTROLLER"))
 ):
     """
-    Records a human controller decision (Approve, Modify window/speed, or Reject).
-    Updates the database entity and logs immutable digital signature audit trail.
+    Records a human controller decision (Approve, Modify window/speed, or Reject/Deny).
+    Updates the database entity, generates targeted persistent notifications, and logs immutable digital signature audit trail.
     """
     task = None
     if body.taskId:
@@ -59,8 +59,10 @@ def submit_hitl_review_decision(
 
     review_id = f"HITL-{uuid.uuid4().hex[:8].upper()}"
     controller_name = current_user.get("name", "Section Controller")
-    controller_id = current_user.get("id", "USR-05")
+    controller_id = current_user.get("id", "USR-01")
     action_upper = body.action.upper()
+    if action_upper == "DENY":
+        action_upper = "REJECT"
 
     original_params = {}
     modified_params = {}
@@ -76,11 +78,13 @@ def submit_hitl_review_decision(
 
         if action_upper == "APPROVE":
             task.hitl_status = "CONTROLLER_APPROVED"
+            task.status = "Approved"
             task.controller_remarks = body.remarks
             task.controller_id = controller_id
             task.reviewed_at = datetime.utcnow()
         elif action_upper == "MODIFY":
             task.hitl_status = "CONTROLLER_MODIFIED"
+            task.status = "Approved"
             if body.modifiedStartTime:
                 task.planned_start_time = body.modifiedStartTime
                 modified_params["plannedStartTime"] = body.modifiedStartTime
@@ -94,7 +98,7 @@ def submit_hitl_review_decision(
             task.controller_remarks = body.remarks
             task.controller_id = controller_id
             task.reviewed_at = datetime.utcnow()
-        elif action_upper == "REJECT":
+        elif action_upper in ["REJECT", "DENY"]:
             task.hitl_status = "CONTROLLER_DENIED"
             task.status = "Cancelled"
             task.controller_remarks = body.remarks
@@ -128,37 +132,67 @@ def submit_hitl_review_decision(
         action=f"HITL_REVIEW_{action_upper}",
         resource_type="Task" if task else "Schedule",
         resource_id=body.taskId or body.scheduleId,
-        details=f"{controller_name} ({current_user.get('role')}) reviewed block with action {action_upper}. Remarks: {body.remarks}",
+        details=f"{controller_name} ({current_user.get('role')}) reviewed block {body.taskId} with action {action_upper}. Remarks: {body.remarks}. Sig: {sig}",
         timestamp=datetime.utcnow()
     )
     db.add(audit)
-    db.commit()
 
-    # If action is APPROVE or MODIFY, generate a targeted in-app notification for the requesting department
-    if task and action_upper in ["APPROVE", "MODIFY"]:
+    # Persistent targeted notification for request owner & department
+    if task:
         notif_id = f"NOTIF-{uuid.uuid4().hex[:8].upper()}"
-        notif_title = f"Corridor Block Allocated: {task.id}" if action_upper == "APPROVE" else f"Corridor Block Window Adjusted & Sanctioned: {task.id}"
-        notif_msg = (
-            f"Corridor Block request for {task.department} on {task.section_name} ({task.line_type or 'Main'}) "
-            f"has been sanctioned for window {task.planned_start_time} - {task.planned_end_time} on {task.nominated_date or task.requested_date}. "
-            f"Speed Restriction: {task.speed_restriction_kmph} km/h. Sanctioned by {controller_name} (Digital Sig: {sig[:14]}...)."
-        )
+        if action_upper == "APPROVE":
+            notif_type = "success"
+            notif_title = f"Corridor Block Allocated: {task.id}"
+            notif_msg = (
+                f"Your block request {task.id} has been approved by the controller ({controller_name}). "
+                f"Sanctioned for window {task.planned_start_time} - {task.planned_end_time} on {task.nominated_date or task.requested_date}. "
+                f"Digital Signature: {sig[:14]}..."
+            )
+            event_name = "HITL_APPROVED"
+        elif action_upper == "MODIFY":
+            notif_type = "warning"
+            notif_title = f"Corridor Block Window Adjusted & Sanctioned: {task.id}"
+            notif_msg = (
+                f"Your block request {task.id} has been modified by the controller ({controller_name}). "
+                f"Review updated block details: Window {task.planned_start_time} - {task.planned_end_time}, "
+                f"Speed Restriction: {task.speed_restriction_kmph} km/h. Sanctioned with Sig: {sig[:14]}..."
+            )
+            event_name = "HITL_MODIFIED"
+        else:
+            notif_type = "critical"
+            notif_title = f"Corridor Block Denied: {task.id}"
+            notif_msg = (
+                f"Your block request {task.id} has been denied by the controller ({controller_name}). "
+                f"Remarks: {body.remarks or 'Line capacity and passenger safety constraints.'}"
+            )
+            event_name = "HITL_DENIED"
+
         notif_entry = NotificationDB(
             id=notif_id,
-            type="success" if action_upper == "APPROVE" else "warning",
+            type=notif_type,
             title=notif_title,
             message=notif_msg,
             timestamp="Just now",
             read=False,
-            category="Schedule",
+            category="Task",
             related_id=task.id,
+            recipient_user_id=task.created_by_user_id,
+            recipient_department=task.department,
+            recipient_role=None,
             created_at=datetime.utcnow()
         )
         db.add(notif_entry)
-        db.commit()
+
+    db.commit()
+
+    # Broadcast Real-time Events
+    if task:
+        task_dict = task.to_dict()
+        broadcast_event("REQUEST_UPDATED", task_dict)
+        broadcast_event("TASK_UPDATED", task_dict)
+        broadcast_event(event_name, {"taskId": task.id, "reviewId": review_id, "action": action_upper})
         broadcast_event("NOTIFICATION_CREATED", notif_entry.to_dict())
 
-    # Broadcast Real-time Event
     broadcast_event("HITL_DECISION_ENTERED", {
         "reviewId": review_id,
         "taskId": body.taskId,
@@ -202,6 +236,7 @@ def emergency_priority_override(
     task.severity = "Critical"
     task.severity_weight = 4
     task.hitl_status = "EMERGENCY_OVERRIDE_APPROVED"
+    task.status = "Approved"
     task.controller_remarks = f"EMERGENCY OVERRIDE: {body.reason} - Justification: {body.emergencyJustification}"
     task.controller_id = controller_id
     task.reviewed_at = datetime.utcnow()
@@ -233,31 +268,42 @@ def emergency_priority_override(
         timestamp=datetime.utcnow()
     )
     db.add(audit)
-    db.commit()
 
-    # Generate Emergency Block Notification
+    # Generate Targeted Emergency Block Notification for request owner and department
     notif_id = f"NOTIF-{uuid.uuid4().hex[:8].upper()}"
     notif_entry = NotificationDB(
         id=notif_id,
         type="critical",
-        title=f"🚨 Emergency Block Sanctioned: {task.id}",
+        title=f"🚨 Emergency Override Approved: {task.id}",
         message=f"Priority 100 Emergency Corridor Block granted on {task.section_name} ({task.corridor}) for {task.department}. Authorized by {controller_name}. Immediate track possession permitted.",
         timestamp="Just now",
         read=False,
         category="Task",
         related_id=task.id,
+        recipient_user_id=task.created_by_user_id,
+        recipient_department=task.department,
+        recipient_role=None,
         created_at=datetime.utcnow()
     )
     db.add(notif_entry)
     db.commit()
-    broadcast_event("NOTIFICATION_CREATED", notif_entry.to_dict())
 
+    task_dict = task.to_dict()
+    broadcast_event("NOTIFICATION_CREATED", notif_entry.to_dict())
+    broadcast_event("EMERGENCY_OVERRIDE", {
+        "taskId": body.taskId,
+        "controllerName": controller_name,
+        "reason": body.reason,
+        "priorityScore": 100
+    })
     broadcast_event("EMERGENCY_OVERRIDE_TRIGGERED", {
         "taskId": body.taskId,
         "controllerName": controller_name,
         "reason": body.reason,
         "priorityScore": 100
     })
+    broadcast_event("REQUEST_UPDATED", task_dict)
+    broadcast_event("TASK_UPDATED", task_dict)
     broadcast_event("METRICS_UPDATED", {"reason": "EMERGENCY_OVERRIDE"})
 
     return HITLReviewResponse(

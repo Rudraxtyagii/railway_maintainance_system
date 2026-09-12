@@ -21,6 +21,8 @@ def upgrade() -> None:
         'users',
         sa.Column('id', sa.String(50), primary_key=True),
         sa.Column('username', sa.String(100), unique=True, nullable=False),
+        sa.Column('password_hash', sa.String(255), nullable=False, server_default=''),
+        sa.Column('salt', sa.String(64), nullable=False, server_default=''),
         sa.Column('name', sa.String(150), nullable=False),
         sa.Column('email', sa.String(150), unique=True, nullable=False),
         sa.Column('role', sa.String(50), nullable=False),
@@ -29,8 +31,10 @@ def upgrade() -> None:
         sa.Column('zone', sa.String(100), server_default='Northern Railway'),
         sa.Column('division', sa.String(100), server_default='Delhi Division'),
         sa.Column('avatar', sa.String(10), server_default='IR'),
+        sa.Column('permissions', sa.JSON(), nullable=True),
         sa.Column('is_active', sa.Boolean(), server_default=sa.text('true')),
         sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+        sa.Column('last_login', sa.DateTime(), nullable=True),
     )
     op.create_index('ix_users_id', 'users', ['id'])
     op.create_index('ix_users_username', 'users', ['username'])
@@ -98,8 +102,38 @@ def upgrade() -> None:
         sa.Column('speed_restriction_kmph', sa.Integer(), server_default='30'),
         sa.Column('notes', sa.Text(), nullable=True),
         sa.Column('created_by', sa.String(100), server_default='system'),
+        sa.Column('created_by_user_id', sa.String(50), nullable=True),
+        sa.Column('created_by_name', sa.String(150), nullable=True),
         sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
         sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
+        sa.Column('division_id', sa.String(50), nullable=True),
+        sa.Column('section_name', sa.String(100), nullable=True),
+        sa.Column('line_type', sa.String(50), nullable=True),
+        sa.Column('station_from', sa.String(50), nullable=True),
+        sa.Column('station_to', sa.String(50), nullable=True),
+        sa.Column('nominated_date', sa.String(50), nullable=True),
+        sa.Column('planned_start_time', sa.String(20), nullable=True),
+        sa.Column('planned_end_time', sa.String(20), nullable=True),
+        sa.Column('demanded_duration_mins', sa.Integer(), server_default='180'),
+        sa.Column('demanded_time', sa.String(50), nullable=True),
+        sa.Column('granted_time', sa.String(50), nullable=True),
+        sa.Column('actual_start_time', sa.String(50), nullable=True),
+        sa.Column('actual_end_time', sa.String(50), nullable=True),
+        sa.Column('burst_duration_mins', sa.Integer(), server_default='0'),
+        sa.Column('requesting_dept', sa.String(100), nullable=False, server_default='Engineering'),
+        sa.Column('block_purpose', sa.String(200), nullable=True),
+        sa.Column('traffic_impact_status', sa.String(200), nullable=True),
+        sa.Column('hitl_status', sa.String(50), nullable=True),
+        sa.Column('controller_remarks', sa.Text(), nullable=True),
+        sa.Column('controller_id', sa.String(50), nullable=True),
+        sa.Column('reviewed_at', sa.DateTime(), nullable=True),
+        sa.Column('hitl_action_by', sa.String(100), nullable=True),
+        sa.Column('hitl_action_at', sa.DateTime(), nullable=True),
+        sa.Column('hitl_remarks', sa.Text(), nullable=True),
+        sa.Column('digital_signature', sa.String(255), nullable=True),
+        sa.Column('original_schedule', sa.JSON(), nullable=True),
+        sa.Column('conflict_ids', sa.JSON(), nullable=True),
+        sa.Column('bundled', sa.Boolean(), server_default=sa.text('false')),
     )
     op.create_index('ix_tasks_id', 'tasks', ['id'])
     op.create_index('ix_tasks_department', 'tasks', ['department'])
@@ -246,6 +280,9 @@ def upgrade() -> None:
         sa.Column('read', sa.Boolean(), server_default=sa.text('false')),
         sa.Column('category', sa.String(50), nullable=False),
         sa.Column('related_id', sa.String(50), nullable=True),
+        sa.Column('recipient_user_id', sa.String(50), nullable=True),
+        sa.Column('recipient_department', sa.String(100), nullable=True),
+        sa.Column('recipient_role', sa.String(50), nullable=True),
         sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
     )
     op.create_index('ix_notifications_id', 'notifications', ['id'])
@@ -275,8 +312,59 @@ def upgrade() -> None:
         sa.Column('parsed', sa.JSON(), nullable=False),
     )
 
+    # 14. knowledge_chunks
+    op.create_table(
+        'knowledge_chunks',
+        sa.Column('id', sa.String(50), primary_key=True),
+        sa.Column('manual_name', sa.String(100), nullable=False),
+        sa.Column('chapter', sa.String(100), nullable=True),
+        sa.Column('rule_number', sa.String(50), nullable=True),
+        sa.Column('title', sa.String(200), nullable=False),
+        sa.Column('content', sa.Text(), nullable=False),
+        sa.Column('tags', sa.JSON(), nullable=True),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+    )
+    op.create_index('ix_knowledge_chunks_id', 'knowledge_chunks', ['id'])
+    op.create_index('ix_knowledge_chunks_manual', 'knowledge_chunks', ['manual_name'])
+
+    # 15. coa_stream_logs
+    op.create_table(
+        'coa_stream_logs',
+        sa.Column('id', sa.String(50), primary_key=True),
+        sa.Column('stream_id', sa.String(100), index=True, nullable=False),
+        sa.Column('division_id', sa.String(50), server_default='DLI'),
+        sa.Column('section_name', sa.String(150), server_default='NDLS-GZB'),
+        sa.Column('source_system', sa.String(50), server_default='COA'),
+        sa.Column('raw_payload', sa.JSON(), nullable=False),
+        sa.Column('parsed_task_id', sa.String(50), sa.ForeignKey('tasks.id', ondelete='SET NULL'), nullable=True),
+        sa.Column('status', sa.String(50), server_default='Ingested'),
+        sa.Column('received_at', sa.DateTime(), server_default=sa.func.now()),
+    )
+    op.create_index('ix_coa_stream_logs_id', 'coa_stream_logs', ['id'])
+
+    # 16. hitl_reviews
+    op.create_table(
+        'hitl_reviews',
+        sa.Column('id', sa.String(50), primary_key=True),
+        sa.Column('task_id', sa.String(50), sa.ForeignKey('tasks.id', ondelete='CASCADE'), nullable=True),
+        sa.Column('bundle_id', sa.String(50), nullable=True),
+        sa.Column('schedule_id', sa.String(50), nullable=True),
+        sa.Column('controller_id', sa.String(50), nullable=False),
+        sa.Column('controller_name', sa.String(150), nullable=False),
+        sa.Column('action', sa.String(50), nullable=False),
+        sa.Column('original_params', sa.JSON(), nullable=True),
+        sa.Column('modified_params', sa.JSON(), nullable=True),
+        sa.Column('remarks', sa.Text(), nullable=True),
+        sa.Column('digital_signature', sa.String(255), nullable=False),
+        sa.Column('timestamp', sa.DateTime(), server_default=sa.func.now()),
+    )
+    op.create_index('ix_hitl_reviews_id', 'hitl_reviews', ['id'])
+
 
 def downgrade() -> None:
+    op.drop_table('hitl_reviews')
+    op.drop_table('coa_stream_logs')
+    op.drop_table('knowledge_chunks')
     op.drop_table('data_quality_samples')
     op.drop_table('audit_logs')
     op.drop_table('notifications')

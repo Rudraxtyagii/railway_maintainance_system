@@ -4,7 +4,6 @@ import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { Breadcrumb } from './Breadcrumb';
 import { RailGptWidget } from '../common/RailGptWidget';
-import { RoleAuthModal } from '../common/RoleAuthModal';
 
 export const AppLayout = () => {
   return (
@@ -21,8 +20,6 @@ export const AppLayout = () => {
       </div>
       {/* Global Floating RAIL-GPT AI Assistant */}
       <RailGptWidget />
-      {/* Global Indian Railways Role Authorization Challenge Modal */}
-      <RoleAuthModal />
     </div>
   );
 };

@@ -109,36 +109,49 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => authService.getCurrentUser());
   const [loading, setLoading] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState('CONNECTING');
-  const [availableUsers, setAvailableUsers] = useState(() => authService.getMockUsers());
+  const [availableUsers, setAvailableUsers] = useState([]);
 
-  // Modal state for Security PIN / Role Authorization Challenge
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [pendingTargetUser, setPendingTargetUser] = useState(null);
-
-  // Initialize Real-Time Connection
+  // Initialize Real-Time Connection and fetch latest user & personnel directory
   useEffect(() => {
     realtimeService.connect();
     const unsub = realtimeService.onStatusChange((status) => {
       setRealtimeStatus(status);
     });
 
-    // Fetch registered personnel from DB
-    authService.getRegisteredUsers().then(users => {
-      if (users && users.length > 0) {
-        setAvailableUsers(users);
-      }
-    });
+    const refreshPersonnel = () => {
+      authService.getRegisteredUsers().then(users => {
+        if (users && users.length > 0) {
+          setAvailableUsers(users);
+        }
+      });
+    };
+
+    refreshPersonnel();
+
+    // Verify session profile against DB if user token exists
+    if (authService.getToken()) {
+      authService.fetchCurrentUser().then(freshUser => {
+        if (freshUser) setUser(freshUser);
+      }).catch(() => {});
+    }
+
+    const handleUserChanged = () => {
+      refreshPersonnel();
+    };
+
+    window.addEventListener('railblock:user_changed', handleUserChanged);
 
     return () => {
       unsub();
+      window.removeEventListener('railblock:user_changed', handleUserChanged);
       realtimeService.disconnect();
     };
   }, []);
 
-  const login = async (username, password) => {
+  const login = async (usernameOrEmail, password) => {
     setLoading(true);
     try {
-      const loggedUser = await authService.login(username, password);
+      const loggedUser = await authService.login(usernameOrEmail, password);
       setUser(loggedUser);
       return loggedUser;
     } finally {
@@ -151,47 +164,8 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  const requestRoleSwitch = (targetUserOrId) => {
-    let target = null;
-    if (typeof targetUserOrId === 'string') {
-      target = availableUsers.find(u => u.id === targetUserOrId || u.role === targetUserOrId || u.username === targetUserOrId);
-    } else if (targetUserOrId && typeof targetUserOrId === 'object') {
-      target = targetUserOrId;
-    }
-    if (!target) target = availableUsers[0];
-
-    if (user?.id === target.id) return;
-
-    setPendingTargetUser(target);
-    setIsAuthModalOpen(true);
-  };
-
-  const closeRoleAuthModal = () => {
-    setIsAuthModalOpen(false);
-    setPendingTargetUser(null);
-  };
-
-  const authorizeAndSwitch = async (pinOrPasscode) => {
-    if (!pendingTargetUser) throw new Error('No target role specified.');
-
-    const result = await authService.verifyAndSwitchRole(pendingTargetUser.id, pinOrPasscode);
-    if (result && result.user) {
-      setUser({ ...result.user });
-      window.dispatchEvent(new CustomEvent('railblock:role_switched', { detail: result.user }));
-      return result.user;
-    }
-  };
-
-  const switchUser = (userId) => {
-    requestRoleSwitch(userId);
-  };
-
-  const switchRole = (roleCode) => {
-    requestRoleSwitch(roleCode);
-  };
-
-  // Role Checks
-  const currentRole = user?.role || 'PLANNER_ADMIN';
+  // Role Checks derived exclusively from authenticated PostgreSQL DB record
+  const currentRole = user?.role || null;
   const isPlannerAdmin = currentRole === 'PLANNER_ADMIN';
   const isCivilEngineer = currentRole === 'DEPT_ENGINEER';
   const isSntOfficer = currentRole === 'SNT_OFFICER';
@@ -218,6 +192,7 @@ export const AuthProvider = ({ children }) => {
 
   // Route Accessibility Check
   const canAccessRoute = (path) => {
+    if (!user) return false;
     if (isPlannerAdmin) return true;
     const allowedRoutes = ROLE_ROUTE_PERMISSIONS[currentRole] || [];
     if (allowedRoutes.includes('*')) return true;
@@ -236,13 +211,6 @@ export const AuthProvider = ({ children }) => {
       realtimeStatus,
       login,
       logout,
-      switchUser,
-      switchRole,
-      requestRoleSwitch,
-      isAuthModalOpen,
-      pendingTargetUser,
-      closeRoleAuthModal,
-      authorizeAndSwitch,
       currentRole,
       isPlannerAdmin,
       isCivilEngineer,

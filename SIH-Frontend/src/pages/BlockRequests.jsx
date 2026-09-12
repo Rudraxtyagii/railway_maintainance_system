@@ -80,10 +80,16 @@ export const BlockRequests = () => {
     };
 
     window.addEventListener('railblock:task_created', handleDataChanged);
+    window.addEventListener('railblock:task_updated', handleDataChanged);
+    window.addEventListener('railblock:hitl_decision', handleDataChanged);
+    window.addEventListener('railblock:database_reset', handleDataChanged);
     window.addEventListener('railblock:data_changed', handleDataChanged);
 
     return () => {
       window.removeEventListener('railblock:task_created', handleDataChanged);
+      window.removeEventListener('railblock:task_updated', handleDataChanged);
+      window.removeEventListener('railblock:hitl_decision', handleDataChanged);
+      window.removeEventListener('railblock:database_reset', handleDataChanged);
       window.removeEventListener('railblock:data_changed', handleDataChanged);
     };
   }, [departmentFilter, corridorFilter, severityFilter, statusFilter]);

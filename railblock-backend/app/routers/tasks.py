@@ -7,7 +7,7 @@ from sqlalchemy import or_
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.db_models import TaskDB, ConflictDB
+from app.db_models import TaskDB, ConflictDB, AuditLogDB, NotificationDB
 from app.models import Task, TaskCreate
 from app.realtime import broadcast_event
 
@@ -83,6 +83,9 @@ def create_task(body: TaskCreate, db: Session = Depends(get_db), current_user: d
     req_date = body.requestedDate or body.preferredDate or body.nominatedDate or datetime.utcnow().strftime("%Y-%m-%d")
     dur_hours = body.durationHours or 2.5
     dept = body.department or current_user.get("department") or "Engineering"
+    creator_username = current_user.get("username", "dept.engineer")
+    creator_id = current_user.get("id", "USR-02")
+    creator_name = current_user.get("name", "Department Officer")
 
     new_task = TaskDB(
         id=new_id,
@@ -119,19 +122,53 @@ def create_task(body: TaskCreate, db: Session = Depends(get_db), current_user: d
         requires_traffic_block=bool(body.requiresTrafficBlock),
         speed_restriction_kmph=body.speedRestrictionKmph or 30,
         notes=body.notes,
-        created_by=current_user.get("username", "dept.engineer"),
+        created_by=creator_username,
+        created_by_user_id=creator_id,
+        created_by_name=creator_name,
         created_at=datetime.utcnow()
     )
 
     db.add(new_task)
+
+    # 1. Audit Log Entry
+    audit = AuditLogDB(
+        user_id=creator_id,
+        action="TASK_CREATED",
+        resource_type="Task",
+        resource_id=new_id,
+        details=f"Block requisition {new_id} created by {creator_name} ({user_role}) for {dept} on corridor {new_task.corridor} ({new_task.location}).",
+        timestamp=datetime.utcnow()
+    )
+    db.add(audit)
+
+    # 2. Admin Notification
+    admin_notif_id = f"NOTIF-{uuid.uuid4().hex[:8].upper()}"
+    admin_notif = NotificationDB(
+        id=admin_notif_id,
+        type="info",
+        title=f"New Block Request: {new_id}",
+        message=f"New block request {new_id} submitted by {creator_name} from {dept} on {new_task.corridor} ({new_task.location}).",
+        timestamp="Just now",
+        read=False,
+        category="Task",
+        related_id=new_id,
+        recipient_role="PLANNER_ADMIN",
+        recipient_department="Operating & Traffic Planning",
+        created_at=datetime.utcnow()
+    )
+    db.add(admin_notif)
+
     db.commit()
     db.refresh(new_task)
 
-    # Broadcast real-time update
-    broadcast_event("TASK_CREATED", new_task.to_dict())
-    broadcast_event("METRICS_UPDATED", {"reason": "TASK_CREATED"})
+    # 3. Broadcast real-time updates
+    task_dict = new_task.to_dict()
+    broadcast_event("REQUEST_CREATED", task_dict)
+    broadcast_event("TASK_CREATED", task_dict)
+    broadcast_event("NOTIFICATION_CREATED", admin_notif.to_dict())
+    broadcast_event("METRICS_UPDATED", {"reason": "REQUEST_CREATED"})
 
-    return new_task.to_dict()
+    return task_dict
 
 
 @router.put("/{task_id}", response_model=dict)

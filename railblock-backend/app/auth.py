@@ -19,7 +19,7 @@ from app.database import get_db
 from app.db_models import UserDB
 from app.errors import ProblemException
 
-JWT_SECRET = os.environ.get("RAILBLOCK_JWT_SECRET", "super-secret-railblock-key-2026-production-secure")
+JWT_SECRET = os.environ.get("JWT_SECRET") or os.environ.get("RAILBLOCK_JWT_SECRET", "super-secret-railblock-key-2026-production-secure")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 168  # 7 days
 

@@ -1,0 +1,32 @@
+# Render Infrastructure Blueprint for RAILBLOCK (SIH PS 26027)
+# Automates deployment of the Centralized FastAPI Backend & Managed PostgreSQL Database
+services:
+  - type: web
+    name: railblock-api
+    runtime: docker
+    dockerfilePath: ./railblock-backend/Dockerfile
+    dockerContext: ./railblock-backend
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: railblock-postgres
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: "https://*.vercel.app,http://localhost:5173,http://localhost:3000"
+      - key: ENVIRONMENT
+        value: production
+      - key: PORT
+        value: 8080
+
+databases:
+  - name: railblock-postgres
+    databaseName: railblock_db
+    user: railblock_user
+    plan: free
+    region: oregon
+    postgresMajorVersion: "16"

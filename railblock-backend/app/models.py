@@ -34,14 +34,17 @@ class LoginResponse(BaseModel):
     user: UserOut
 
 
+VALID_ROLES = {"PLANNER_ADMIN", "DEPT_ENGINEER", "SNT_OFFICER", "TRD_ENGINEER", "FIELD_CONTROLLER"}
+
+
 class UserCreateRequest(BaseModel):
     username: str
     password: str
     name: str
     email: str
     role: str  # PLANNER_ADMIN | DEPT_ENGINEER | SNT_OFFICER | TRD_ENGINEER | FIELD_CONTROLLER
-    department: str
-    designation: str
+    department: Optional[str] = "Engineering"
+    designation: Optional[str] = "Railway Official"
     zone: Optional[str] = "Northern Railway"
     division: Optional[str] = "Delhi Division"
     avatar: Optional[str] = "IR"
@@ -107,6 +110,8 @@ class Task(BaseModel):
     controllerId: Optional[str] = None
     reviewedAt: Optional[str] = None
     createdBy: Optional[str] = "system"
+    createdByUserId: Optional[str] = None
+    createdByName: Optional[str] = None
     createdAt: Optional[str] = None
     updatedAt: Optional[str] = None
 

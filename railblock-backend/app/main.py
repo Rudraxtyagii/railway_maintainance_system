@@ -64,10 +64,29 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Middleware
+# ---------------------------------------------------------------------------
+# Production CORS Configuration
+# ---------------------------------------------------------------------------
+raw_origins = os.getenv("CORS_ORIGINS", "")
+allowed_origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8080",
+    "http://127.0.0.1:3000",
+]
+
+if raw_origins:
+    for orig in raw_origins.split(","):
+        clean_orig = orig.strip().rstrip("/")
+        if clean_orig and clean_orig not in allowed_origins:
+            allowed_origins.append(clean_orig)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

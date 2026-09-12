@@ -19,12 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend source code
 COPY . .
 
-# Expose port 8080
+# Expose port (default 8080, dynamically overridden by Render $PORT)
 EXPOSE 8080
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/health || exit 1
-
-# Run backend service
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Run backend service with dynamic PORT binding
+CMD ["sh", "-c", "alembic upgrade head || true && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]

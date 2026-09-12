@@ -195,6 +195,8 @@ class TaskDB(Base):
     # 7. Status & Metadata
     status = Column(String(50), index=True, default="Pending")  # Pending | Scheduled | In-Progress | Completed | Cancelled
     created_by = Column(String(100), default="system")
+    created_by_user_id = Column(String(50), nullable=True, index=True)
+    created_by_name = Column(String(150), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -243,6 +245,8 @@ class TaskDB(Base):
             "reviewedAt": self.reviewed_at.isoformat() if self.reviewed_at else None,
             "status": self.status,
             "createdBy": self.created_by,
+            "createdByUserId": self.created_by_user_id,
+            "createdByName": self.created_by_name or self.created_by,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None
         }
@@ -553,6 +557,9 @@ class NotificationDB(Base):
     read = Column(Boolean, default=False, index=True)
     category = Column(String(50), nullable=False)
     related_id = Column(String(50), nullable=True)
+    recipient_user_id = Column(String(50), nullable=True, index=True)
+    recipient_department = Column(String(100), nullable=True, index=True)
+    recipient_role = Column(String(50), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -566,7 +573,11 @@ class NotificationDB(Base):
             "unread": not self.read,
             "actionUrl": CATEGORY_TO_URL.get(self.category, "/notifications"),
             "category": self.category,
-            "relatedId": self.related_id
+            "relatedId": self.related_id,
+            "recipientUserId": self.recipient_user_id,
+            "recipientDepartment": self.recipient_department,
+            "recipientRole": self.recipient_role,
+            "createdAt": self.created_at.isoformat() if self.created_at else None
         }
 
 

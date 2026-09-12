@@ -311,10 +311,140 @@ def test_suite():
     assert len(empty_tasks_res.json()) == 0
     print("  ✓ Verified GET /api/tasks returns [] in clean state.")
 
+    # --------------------------------------------------------------------------
+    # 8. Test Targeted Notification Delivery & Isolation
+    # --------------------------------------------------------------------------
+    print("\n[TEST 8] Testing Targeted Notification Delivery & Isolation...")
+    
+    # 8a. S&T Officer logs in and creates an S&T block request
+    snt_login = client.post("/api/auth/login", json={"username": "snt.user", "password": "Password123!"})
+    assert snt_login.status_code == 200
+    snt_token = snt_login.json()["token"]
+    snt_headers = {"Authorization": f"Bearer {snt_token}"}
+
+    snt_task_req = {
+        "divisionId": "DLI",
+        "sectionName": "NDLS-GZB",
+        "corridor": "NDLS-GZB",
+        "location": "Cabin 4 Interlocking",
+        "severity": "High",
+        "durationHours": 1.5,
+        "requestedDate": "2026-09-19",
+        "plannedStartTime": "02:00",
+        "plannedEndTime": "03:30",
+        "department": "Signal & Telecom",
+        "defectType": "Electronic Interlocking Point Overhaul",
+        "description": "Routine testing of point machine 102A/B and track circuit failover",
+        "requiresTrafficBlock": True,
+        "requiresPowerBlock": False
+    }
+    snt_create_res = client.post("/api/tasks", json=snt_task_req, headers=snt_headers)
+    assert snt_create_res.status_code == 201
+    snt_task_id = snt_create_res.json()["id"]
+    print(f"  ✓ S&T Officer created block request {snt_task_id}.")
+
+    # 8b. Check Admin notifications - should see the targeted notification for new task
+    admin_notifs_res = client.get("/api/notifications", headers=auth_headers)
+    assert admin_notifs_res.status_code == 200
+    admin_notifs = admin_notifs_res.json()
+    assert any(snt_task_id in n.get("message", "") or "New Block Requisition" in n.get("title", "") for n in admin_notifs)
+    print("  ✓ Admin received targeted notification for new departmental block request.")
+
+    # 8c. Admin approves S&T request
+    snt_approve_payload = {
+        "taskId": snt_task_id,
+        "action": "APPROVE",
+        "remarks": "Approved for 02:00 - 03:30 maintenance shadow."
+    }
+    snt_approve_res = client.post("/api/hitl/review", json=snt_approve_payload, headers=auth_headers)
+    assert snt_approve_res.status_code == 200
+    print(f"  ✓ Admin approved S&T block request {snt_task_id}.")
+
+    # 8d. S&T Officer checks notifications - should receive the approval notification
+    snt_notifs_res = client.get("/api/notifications", headers=snt_headers)
+    assert snt_notifs_res.status_code == 200
+    snt_notifs = snt_notifs_res.json()
+    assert any(snt_task_id in n.get("title", "") or (snt_task_id in n.get("message", "") and "approved" in n.get("message", "").lower()) for n in snt_notifs)
+    print(f"  ✓ S&T Officer received targeted approval notification for {snt_task_id}.")
+
+    # --------------------------------------------------------------------------
+    # 9. Test User Provisioning & Account Status Lifecycle
+    # --------------------------------------------------------------------------
+    print("\n[TEST 9] Testing Admin User Provisioning & RBAC Account Lifecycle...")
+    
+    # 9a. Non-admin forbidden from provisioning users (403)
+    non_admin_prov = client.post("/api/auth/users", json={
+        "username": "test_officer",
+        "name": "Test Officer",
+        "email": "test@railnet.gov.in",
+        "password": "Password123!",
+        "role": "DEPT_ENGINEER"
+    }, headers=snt_headers)
+    assert non_admin_prov.status_code == 403
+    print("  ✓ Non-admin correctly forbidden (403) from provisioning users.")
+
+    # 9b. Admin provisions with invalid role -> 400 Bad Request
+    invalid_role_res = client.post("/api/auth/users", json={
+        "username": "hacker_user",
+        "name": "Hacker User",
+        "email": "hacker@test.com",
+        "password": "Password123!",
+        "role": "SUPER_SUPER_ADMIN_CUSTOM"
+    }, headers=auth_headers)
+    assert invalid_role_res.status_code == 400
+    print("  ✓ Admin provisioning with unauthorized role rejected with 400 Bad Request.")
+
+    # 9c. Admin provisions a valid TRD Officer
+    import uuid
+    uniq_suffix = uuid.uuid4().hex[:6]
+    test_uname = f"new.trd.{uniq_suffix}"
+    test_email = f"kavita.{uniq_suffix}@railnet.gov.in"
+    valid_prov_res = client.post("/api/auth/users", json={
+        "username": test_uname,
+        "name": "Kavita Nair",
+        "email": test_email,
+        "password": "SecurePassword123!",
+        "role": "TRD_ENGINEER",
+        "department": "Electrical / Traction Distribution",
+        "designation": "Assistant Divisional Electrical Engineer (ADEE/TRD)",
+        "zone": "Northern Railway",
+        "division": "Delhi Division"
+    }, headers=auth_headers)
+    assert valid_prov_res.status_code == 201
+    prov_user = valid_prov_res.json()
+    assert prov_user["username"] == test_uname
+    assert prov_user["role"] == "TRD_ENGINEER"
+    prov_user_id = prov_user["id"]
+    print(f"  ✓ Admin successfully provisioned new TRD Officer {prov_user['name']} (ID: {prov_user_id}).")
+
+    # 9d. Newly provisioned user logs in successfully
+    new_user_login = client.post("/api/auth/login", json={
+        "username": test_uname,
+        "password": "SecurePassword123!"
+    })
+    assert new_user_login.status_code == 200
+    assert new_user_login.json()["user"]["role"] == "TRD_ENGINEER"
+    print("  ✓ Newly provisioned officer logged in successfully with database credentials.")
+
+    # 9e. Admin suspends the user account
+    suspend_res = client.put(f"/api/auth/users/{prov_user_id}", json={"isActive": False}, headers=auth_headers)
+    assert suspend_res.status_code == 200
+    assert suspend_res.json()["isActive"] is False
+    print("  ✓ Admin suspended user account (isActive=False).")
+
+    # 9f. Suspended user login fails with 403 Forbidden
+    suspended_login = client.post("/api/auth/login", json={
+        "username": test_uname,
+        "password": "SecurePassword123!"
+    })
+    assert suspended_login.status_code == 403
+    print("  ✓ Suspended user login rejected with 403 Forbidden.")
+
     print("\n================================================================================")
-    print("            ALL 7 VERIFICATION SUITES PASSED PERFECTLY (100% SUCCESS)           ")
+    print("            ALL 9 VERIFICATION SUITES PASSED PERFECTLY (100% SUCCESS)           ")
     print("================================================================================")
 
 
 if __name__ == "__main__":
     test_suite()
+

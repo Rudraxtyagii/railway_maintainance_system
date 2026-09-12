@@ -108,9 +108,16 @@ def create_user_by_admin(
     """
     Admin-only user provisioning. Only authorized Senior DOM / Planner Admins can register new personnel.
     """
+    valid_roles = {"PLANNER_ADMIN", "DEPT_ENGINEER", "SNT_OFFICER", "TRD_ENGINEER", "FIELD_CONTROLLER"}
+    if body.role not in valid_roles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role '{body.role}'. Allowed RBAC roles are: {sorted(list(valid_roles))}"
+        )
+
     # Check if username or email already exists
     existing = db.query(UserDB).filter(
-        (UserDB.username.ilike(body.username)) | (UserDB.email.ilike(body.email))
+        (UserDB.username.ilike(body.username.strip())) | (UserDB.email.ilike(body.email.strip()))
     ).first()
 
     if existing:
@@ -158,6 +165,13 @@ def update_user(
     """
     Admin-only update of personnel details, role, department, or active status.
     """
+    valid_roles = {"PLANNER_ADMIN", "DEPT_ENGINEER", "SNT_OFFICER", "TRD_ENGINEER", "FIELD_CONTROLLER"}
+    if body.role is not None and body.role not in valid_roles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role '{body.role}'. Allowed RBAC roles are: {sorted(list(valid_roles))}"
+        )
+
     db_user = db.query(UserDB).filter(UserDB.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=404, detail=f"User with ID '{user_id}' not found.")
