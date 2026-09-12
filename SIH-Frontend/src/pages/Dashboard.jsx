@@ -32,6 +32,11 @@ import { taskService } from '../services/taskService';
 import { scheduleService } from '../services/scheduleService';
 import { LoadingSkeleton } from '../components/common/LoadingSkeleton';
 import { Modal } from '../components/common/Modal';
+import { ConfirmDialog } from '../components/common/ConfirmDialog';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { adminService } from '../services/adminService';
+import { Trash2, Shield, Plus } from 'lucide-react';
 
 // --- Color lookup maps (presentation concern lives in the frontend,
 //     not the API response) ---
@@ -69,12 +74,41 @@ const EMPTY_STATS = {
 
 export const Dashboard = () => {
   const navigate = useNavigate();
+  const { isPlannerAdmin, user, userDepartment } = useAuth();
+  const { addToast } = useToast();
+
   const [stats, setStats] = useState(null);
   const [recentTasks, setRecentTasks] = useState([]);
   const [upcomingBlocks, setUpcomingBlocks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [realtimeAlert, setRealtimeAlert] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
+
+  // Admin DB Reset State in Dashboard
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const handleExecuteReset = async () => {
+    setResetting(true);
+    try {
+      const res = await adminService.resetDatabase();
+      addToast({
+        title: 'Database Reset to Clean State',
+        message: res.message || 'All dynamic queues wiped from PostgreSQL. 0 tasks active.',
+        type: 'success'
+      });
+      setIsResetConfirmOpen(false);
+      window.dispatchEvent(new CustomEvent('railblock:data_changed', { detail: { action: 'DATABASE_RESET' } }));
+    } catch (err) {
+      addToast({
+        title: 'Reset Error',
+        message: err.message || 'Failed to reset database.',
+        type: 'error'
+      });
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const loadDashboardData = async () => {
     try {
@@ -84,21 +118,24 @@ export const Dashboard = () => {
         scheduleService.getSchedules()
       ]);
 
+      const tasksList = tasks || [];
+      const schedList = schedules || [];
+
       setStats({
-        totalBlockRequests: dashStats?.totalBlockRequests ?? (tasks?.length || 0),
-        pendingRequests: dashStats?.pendingRequests ?? tasks?.filter(t => t.status === 'Pending').length,
-        highPriorityTasks: dashStats?.highPriorityTasks ?? tasks?.filter(t => (t.priorityScore || 0) >= 80).length,
-        availableBlockWindows: dashStats?.availableBlockWindows ?? 34,
-        activeConflicts: dashStats?.activeConflicts ?? 12,
-        bundleCandidates: dashStats?.bundleCandidates ?? 8,
-        optimizedBlocks: dashStats?.optimizedBlocks ?? (schedules?.length || 14),
-        downtimeSavedHours: dashStats?.downtimeSavedHours ?? 48,
+        totalBlockRequests: dashStats?.totalBlockRequests ?? tasksList.length,
+        pendingRequests: dashStats?.pendingRequests ?? tasksList.filter(t => t.status === 'Pending').length,
+        highPriorityTasks: dashStats?.highPriorityTasks ?? tasksList.filter(t => (t.priorityScore || 0) >= 80 || t.severity === 'Critical' || t.severity === 'High').length,
+        availableBlockWindows: dashStats?.availableBlockWindows ?? 0,
+        activeConflicts: dashStats?.activeConflicts ?? 0,
+        bundleCandidates: dashStats?.bundleCandidates ?? 0,
+        optimizedBlocks: dashStats?.optimizedBlocks ?? schedList.length,
+        downtimeSavedHours: dashStats?.downtimeSavedHours ?? 0,
         requestsByDepartment: dashStats?.requestsByDepartment ?? [],
         priorityDistribution: dashStats?.priorityDistribution ?? [],
         corridorUtilization: dashStats?.corridorUtilization ?? [],
       });
-      setRecentTasks(tasks?.slice(0, 8) ?? []);
-      setUpcomingBlocks(schedules?.slice(0, 4) ?? []);
+      setRecentTasks(tasksList.slice(0, 8));
+      setUpcomingBlocks(schedList.slice(0, 4));
     } catch (err) {
       console.error('Dashboard data fetch failed:', err);
       setStats(EMPTY_STATS);
@@ -138,7 +175,7 @@ export const Dashboard = () => {
         // Trigger full sync in background
         setTimeout(() => {
           loadDashboardData();
-        }, 500);
+        }, 300);
       }
     };
 
@@ -148,10 +185,14 @@ export const Dashboard = () => {
 
     window.addEventListener('railblock:task_created', handleTaskCreated);
     window.addEventListener('railblock:data_changed', handleDataChanged);
+    window.addEventListener('railblock:metrics_updated', handleDataChanged);
+    window.addEventListener('railblock:schedule_approved', handleDataChanged);
 
     return () => {
       window.removeEventListener('railblock:task_created', handleTaskCreated);
       window.removeEventListener('railblock:data_changed', handleDataChanged);
+      window.removeEventListener('railblock:metrics_updated', handleDataChanged);
+      window.removeEventListener('railblock:schedule_approved', handleDataChanged);
     };
   }, []);
 
@@ -195,35 +236,84 @@ export const Dashboard = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Railway Block Planning Control Center"
-        subtitle="Operational overview for multi-departmental maintenance synchronization, conflict mitigation, and automated corridor capacity optimization."
-        badge="Active Control Room"
-        actions={
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleQuickIngestSample}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold shadow-sm transition-all"
-              title="Test real-time request generation with 1 click"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-300" />
-              <span>+ Quick Ingest Request</span>
-            </button>
-            <button
-              onClick={() => navigate('/optimization')}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-rail-800 hover:bg-rail-900 text-white text-xs font-semibold shadow-sm transition-all"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              <span>Run Block Optimizer</span>
-            </button>
-            <button
-              onClick={() => navigate('/block-requests')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-sm transition-colors"
-            >
-              <ClipboardList className="w-3.5 h-3.5 text-slate-500" />
-              <span>Manage Requests</span>
-            </button>
-          </div>
+        title={isPlannerAdmin ? "Railway Central Block Planning & Governance Center" : `${user?.department || 'Departmental'} Maintenance Hub`}
+        subtitle={
+          isPlannerAdmin
+            ? "Operational command center for multi-departmental maintenance synchronization, corridor capacity scheduling, and automatic AI block optimization."
+            : `Welcome, ${user?.name || 'Officer'} (${user?.designation || 'Engineer'}). Submit maintenance block requisitions, track sanction approvals, and verify safety protocols with RAIL-GPT.`
         }
+        badge={isPlannerAdmin ? "Central Planning • Admin" : `${user?.department || 'Department'} Portal`}
+        actions={
+          isPlannerAdmin ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleQuickIngestSample}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold shadow-sm transition-all"
+                title="Test real-time request generation with 1 click"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-300" />
+                <span>+ Quick Ingest Feed</span>
+              </button>
+              <button
+                onClick={() => navigate('/optimization')}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-rail-800 hover:bg-rail-900 text-white text-xs font-semibold shadow-sm transition-all"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>Run Block Optimizer</span>
+              </button>
+              <button
+                onClick={() => navigate('/block-requests')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-sm transition-colors"
+              >
+                <ClipboardList className="w-3.5 h-3.5 text-slate-500" />
+                <span>Manage Requests</span>
+              </button>
+              <button
+                onClick={() => setIsResetConfirmOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-sm transition-all"
+                title="Wipe dynamic data and reset database to clean state"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Reset Database</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate('/block-requests')}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-rail-900 hover:bg-rail-800 text-white text-xs font-semibold shadow-sm transition-all"
+              >
+                <Plus className="w-3.5 h-3.5 text-amber-300" />
+                <span>Create Block Request</span>
+              </button>
+              <button
+                onClick={() => navigate('/ai-copilot')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-all"
+              >
+                <Bot className="w-3.5 h-3.5 text-amber-300" />
+                <span>Ask RAIL-GPT (RAG)</span>
+              </button>
+              <button
+                onClick={() => navigate('/notifications')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-sm transition-colors"
+              >
+                <span>View Sanction Alerts</span>
+              </button>
+            </div>
+          )
+        }
+      />
+
+      {/* Admin DB Reset Confirmation Modal */}
+      <ConfirmDialog
+        isOpen={isResetConfirmOpen}
+        title="⚠️ Reset Railway Operational Database?"
+        message="This action will permanently purge all block requests, conflict analyses, and generated schedules from PostgreSQL. Are you sure you want to initialize the database to a clean state?"
+        confirmLabel={resetting ? "Purging Queues..." : "Yes, Reset Database"}
+        cancelLabel="Cancel"
+        confirmVariant="danger"
+        onConfirm={handleExecuteReset}
+        onCancel={() => setIsResetConfirmOpen(false)}
       />
 
       {/* Real-Time Request Reflection Flash Alert */}
@@ -268,75 +358,112 @@ export const Dashboard = () => {
         </div>
       )}
 
-      {/* 8 Mission-Critical Operational KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-        <KpiCard
-          title="Total Requests"
-          value={stats.totalBlockRequests}
-          subtitle="All 3 depts"
-          icon={ClipboardList}
-          statusColor="blue"
-          onClick={() => navigate('/block-requests')}
-        />
-        <KpiCard
-          title="Pending Requests"
-          value={stats.pendingRequests}
-          subtitle="Awaiting plan"
-          icon={Clock}
-          statusColor="amber"
-          onClick={() => navigate('/block-requests')}
-        />
-        <KpiCard
-          title="High Priority"
-          value={stats.highPriorityTasks}
-          subtitle="Critical / High"
-          icon={AlertCircle}
-          statusColor="red"
-          onClick={() => navigate('/priority')}
-        />
-        <KpiCard
-          title="Available Windows"
-          value={stats.availableBlockWindows}
-          subtitle="Next 7 days"
-          icon={CalendarDays}
-          statusColor="green"
-          onClick={() => navigate('/corridor-availability')}
-        />
-        <KpiCard
-          title="Active Conflicts"
-          value={stats.activeConflicts}
-          subtitle="Spatial / Power"
-          icon={AlertOctagon}
-          statusColor="red"
-          onClick={() => navigate('/conflicts')}
-        />
-        <KpiCard
-          title="Bundle Candidates"
-          value={stats.bundleCandidates}
-          subtitle="Multi-disciplinary"
-          icon={Layers}
-          statusColor="indigo"
-          onClick={() => navigate('/conflicts')}
-        />
-        <KpiCard
-          title="Optimized Blocks"
-          value={stats.optimizedBlocks}
-          subtitle="Automated output"
-          icon={Sparkles}
-          statusColor="green"
-          onClick={() => navigate('/schedule')}
-        />
-        <KpiCard
-          title="Downtime Saved"
-          value={`${stats.downtimeSavedHours}h`}
-          subtitle="40% net gain"
-          icon={Hourglass}
-          statusColor="green"
-          trend="40% vs manual"
-          trendDirection="down"
-          onClick={() => navigate('/downtime')}
-        />
-      </div>
+      {/* Operational KPI Cards (All 8 for Admin, 4 Department Specific for Department Users) */}
+      {isPlannerAdmin ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+          <KpiCard
+            title="Total Requests"
+            value={stats.totalBlockRequests}
+            subtitle="All 3 depts"
+            icon={ClipboardList}
+            statusColor="blue"
+            onClick={() => navigate('/block-requests')}
+          />
+          <KpiCard
+            title="Pending Requests"
+            value={stats.pendingRequests}
+            subtitle="Awaiting plan"
+            icon={Clock}
+            statusColor="amber"
+            onClick={() => navigate('/block-requests')}
+          />
+          <KpiCard
+            title="High Priority"
+            value={stats.highPriorityTasks}
+            subtitle="Critical / High"
+            icon={AlertCircle}
+            statusColor="red"
+            onClick={() => navigate('/priority')}
+          />
+          <KpiCard
+            title="Available Windows"
+            value={stats.availableBlockWindows}
+            subtitle="Next 7 days"
+            icon={CalendarDays}
+            statusColor="green"
+            onClick={() => navigate('/corridor-availability')}
+          />
+          <KpiCard
+            title="Active Conflicts"
+            value={stats.activeConflicts}
+            subtitle="Spatial / Power"
+            icon={AlertOctagon}
+            statusColor="red"
+            onClick={() => navigate('/conflicts')}
+          />
+          <KpiCard
+            title="Bundle Candidates"
+            value={stats.bundleCandidates}
+            subtitle="Multi-disciplinary"
+            icon={Layers}
+            statusColor="indigo"
+            onClick={() => navigate('/conflicts')}
+          />
+          <KpiCard
+            title="Optimized Blocks"
+            value={stats.optimizedBlocks}
+            subtitle="Automated output"
+            icon={Sparkles}
+            statusColor="green"
+            onClick={() => navigate('/schedule')}
+          />
+          <KpiCard
+            title="Downtime Saved"
+            value={`${stats.downtimeSavedHours}h`}
+            subtitle="40% net gain"
+            icon={Hourglass}
+            statusColor="green"
+            trend="40% vs manual"
+            trendDirection="down"
+            onClick={() => navigate('/downtime')}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <KpiCard
+            title="My Department Requests"
+            value={recentTasks.filter(t => t.department === userDepartment || (t.department && userDepartment && t.department.toLowerCase().includes(userDepartment.toLowerCase()))).length}
+            subtitle="Total Registered Backlog"
+            icon={ClipboardList}
+            statusColor="blue"
+            onClick={() => navigate('/block-requests')}
+          />
+          <KpiCard
+            title="Pending HITL Review"
+            value={recentTasks.filter(t => (t.status === 'Pending' || !t.hitlStatus) && (t.department === userDepartment || (t.department && userDepartment && t.department.toLowerCase().includes(userDepartment.toLowerCase())))).length}
+            subtitle="Awaiting Sr. DOM Sanction"
+            icon={Clock}
+            statusColor="amber"
+            onClick={() => navigate('/block-requests')}
+          />
+          <KpiCard
+            title="Approved & Scheduled"
+            value={recentTasks.filter(t => (t.status === 'Approved' || t.status === 'Scheduled' || t.hitlStatus === 'CONTROLLER_APPROVED') && (t.department === userDepartment || (t.department && userDepartment && t.department.toLowerCase().includes(userDepartment.toLowerCase())))).length}
+            subtitle="Sanctioned Corridors"
+            icon={CheckCircle2}
+            statusColor="green"
+            onClick={() => navigate('/notifications')}
+          />
+          <KpiCard
+            title="Critical Defect Alerts"
+            value={recentTasks.filter(t => t.severity === 'Critical' && (t.department === userDepartment || (t.department && userDepartment && t.department.toLowerCase().includes(userDepartment.toLowerCase())))).length}
+            subtitle="Urgent Track/OHE/Signal"
+            icon={AlertCircle}
+            statusColor="red"
+            onClick={() => navigate('/block-requests')}
+          />
+        </div>
+      )}
 
       {/* AI & ML Innovation Command Banner */}
       <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-rail-950 text-white rounded-xl border border-indigo-800/60 shadow-elevated p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

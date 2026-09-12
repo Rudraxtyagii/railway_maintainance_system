@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -21,69 +21,141 @@ import {
   Train,
   Bot,
   Key,
-  LockKeyhole
+  LockKeyhole,
+  CheckCircle2,
+  Trash2,
+  Shield
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import { adminService } from '../../services/adminService';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 
 export const Sidebar = () => {
   const [collapsed, setCollapsed] = useState(false);
   const { isPlannerAdmin, user, currentRole, canAccessRoute } = useAuth();
+  const { addToast } = useToast();
+  const navigate = useNavigate();
 
-  const navGroups = [
+  // Admin DB Reset Modal
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const handleExecuteReset = async () => {
+    setResetting(true);
+    try {
+      const res = await adminService.resetDatabase();
+      addToast({
+        title: 'Database Reset Successfully',
+        message: res.message || 'All operational maintenance queues purged. Clean slate active.',
+        type: 'success'
+      });
+      setIsResetConfirmOpen(false);
+      window.dispatchEvent(new CustomEvent('railblock:data_changed', { detail: { action: 'DATABASE_RESET' } }));
+    } catch (err) {
+      addToast({
+        title: 'Reset Error',
+        message: err.message || 'Failed to reset database.',
+        type: 'error'
+      });
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  // Admin Navigation Groups (Full Central System)
+  const adminNavGroups = [
     {
-      label: 'OVERVIEW',
+      label: 'CENTRAL OPERATIONS',
       items: [
-        { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }
+        { to: '/dashboard', label: 'Operations Dashboard', icon: LayoutDashboard },
+        { to: '/hitl-review', label: 'HITL Review Center', icon: CheckCircle2, highlight: true, badge: 'HITL Live' },
+        { to: '/block-requests', label: 'Block Requests Queue', icon: ClipboardList }
       ]
     },
     {
-      label: 'AI & INTELLIGENCE',
+      label: 'AI INTELLIGENCE (RAG)',
       items: [
         {
           to: '/ai-copilot',
           label: 'RAIL-GPT Copilot',
           icon: Bot,
           highlight: true,
-          badge: 'AI Hub'
+          badge: 'G&SR Grounded'
         }
       ]
     },
     {
-      label: 'OPERATIONS',
+      label: 'PLANNING & OPTIMIZATION',
       items: [
-        { to: '/block-requests', label: 'Block Requests', icon: ClipboardList },
-        { to: '/data-sync', label: 'Data Sync', icon: RefreshCw },
-        { to: '/data-quality', label: 'Data Quality', icon: FileCheck2 },
-        { to: '/priority', label: 'Priority Scoring', icon: ListOrdered },
         { to: '/corridor-availability', label: 'Corridor Availability', icon: CalendarDays },
-        { to: '/conflicts', label: 'Conflict & Bundling', icon: AlertOctagon, badge: '12' },
+        { to: '/priority', label: 'Priority Scoring', icon: ListOrdered },
+        { to: '/conflicts', label: 'Conflict & Bundling', icon: AlertOctagon, badge: 'Live' },
         {
           to: '/optimization',
           label: 'Optimization Engine',
           icon: Sparkles,
           highlight: true
         },
-        { to: '/schedule', label: 'Block Schedule', icon: CalendarCheck },
-        { to: '/validation', label: 'Validation', icon: ShieldCheck }
+        { to: '/schedule', label: 'Master Block Schedule', icon: CalendarCheck },
+        { to: '/validation', label: 'Safety Validation', icon: ShieldCheck }
       ]
     },
     {
-      label: 'ANALYTICS',
+      label: 'TELEMETRY & INGESTION',
       items: [
-        { to: '/performance', label: 'Performance', icon: Gauge },
-        { to: '/downtime', label: 'Downtime Analysis', icon: Hourglass, badge: '40% saved' }
+        { to: '/data-sync', label: 'Data Sync (COA Feed)', icon: RefreshCw },
+        { to: '/data-quality', label: 'Data Quality Rules', icon: FileCheck2 }
       ]
     },
     {
-      label: 'GOVERNANCE & SYSTEM',
+      label: 'ANALYTICS & AUDIT',
       items: [
-        { to: '/rbac', label: 'RBAC Matrix', icon: Key, badge: 'IR-Roles' },
+        { to: '/performance', label: 'Performance KPIs', icon: Gauge },
+        { to: '/downtime', label: 'Downtime Analysis', icon: Hourglass, badge: 'Saved' }
+      ]
+    },
+    {
+      label: 'ADMINISTRATION & SECURITY',
+      items: [
+        { to: '/rbac', label: 'RBAC Access Matrix', icon: Key, badge: 'IR-Roles' },
+        { to: '/settings', label: 'System Settings', icon: Settings },
         { to: '/notifications', label: 'Notifications', icon: Bell },
-        { to: '/profile', label: 'Profile', icon: UserCheck },
-        { to: '/settings', label: 'Settings', icon: Settings }
+        { to: '/profile', label: 'Admin Profile', icon: UserCheck }
       ]
     }
   ];
+
+  // Department User Navigation Groups (Streamlined: Only Request Block, Approval Status, Copilot, Profile)
+  const departmentNavGroups = [
+    {
+      label: 'BLOCK REQUISITION',
+      items: [
+        { to: '/block-requests', label: 'Request a Block', icon: ClipboardList, badge: 'Submit Demand', highlight: true }
+      ]
+    },
+    {
+      label: 'SANCTION & APPROVALS',
+      items: [
+        { to: '/notifications', label: 'Approval Status', icon: Bell, badge: 'Live' }
+      ]
+    },
+    {
+      label: 'AI ASSISTANT & PROFILE',
+      items: [
+        {
+          to: '/ai-copilot',
+          label: 'RAIL-GPT Copilot',
+          icon: Bot,
+          highlight: true,
+          badge: 'G&SR Rules'
+        },
+        { to: '/profile', label: 'Officer Profile', icon: UserCheck }
+      ]
+    }
+  ];
+
+  const activeNavGroups = isPlannerAdmin ? adminNavGroups : departmentNavGroups;
 
   return (
     <aside
@@ -95,23 +167,25 @@ export const Sidebar = () => {
       {!collapsed && (
         <div className="p-3 border-b border-rail-900/80 bg-rail-900/40">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">ACTIVE ROLE</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-bold border border-amber-400/30">
+            <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">ACTIVE PERSONA</span>
+            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold border ${
+              isPlannerAdmin ? 'bg-amber-400/20 text-amber-300 border-amber-400/30' : 'bg-emerald-400/20 text-emerald-300 border-emerald-400/30'
+            }`}>
               {currentRole}
             </span>
           </div>
           <div className="text-xs font-bold text-white truncate mt-1">
-            {user?.name || 'Chief Controller'}
+            {user?.name || 'Authorized Officer'}
           </div>
           <div className="text-[10px] text-slate-400 truncate">
-            {user?.designation || 'Sr. DOM / Planning'}
+            {user?.designation || (isPlannerAdmin ? 'Sr. DOM / Central Planning' : user?.department)}
           </div>
         </div>
       )}
 
-      {/* Top Nav Items */}
-      <div className="flex-1 overflow-y-auto py-3 px-2 space-y-6">
-        {navGroups.map((group, gIdx) => (
+      {/* Nav Items List */}
+      <div className="flex-1 overflow-y-auto py-3 px-2 space-y-5">
+        {activeNavGroups.map((group, gIdx) => (
           <div key={group.label || gIdx}>
             {!collapsed && (
               <div className="px-3 mb-1.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">
@@ -161,13 +235,45 @@ export const Sidebar = () => {
             </div>
           </div>
         ))}
+
+        {/* Admin Clean-Slate Reset Quick Action in Sidebar */}
+        {isPlannerAdmin && !collapsed && (
+          <div className="pt-2 px-1">
+            <div className="p-2.5 rounded-lg bg-red-950/40 border border-red-900/60 space-y-2">
+              <div className="flex items-center gap-1.5 text-red-400 text-[10px] font-bold uppercase font-mono">
+                <Shield className="w-3 h-3" />
+                <span>Admin DB Control</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsResetConfirmOpen(true)}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded text-[11px] font-bold transition-all shadow"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Reset Database</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Confirmation Dialog for DB Reset */}
+      <ConfirmDialog
+        isOpen={isResetConfirmOpen}
+        title="⚠️ Reset Operational Database to Clean State?"
+        message="This action will permanently purge all block requests, conflict analyses, and generated schedules from PostgreSQL. Foundational personnel, corridors, and RAG knowledge manuals will remain intact."
+        confirmLabel={resetting ? "Purging Queues..." : "Yes, Purge Database"}
+        cancelLabel="Cancel"
+        confirmVariant="danger"
+        onConfirm={handleExecuteReset}
+        onCancel={() => setIsResetConfirmOpen(false)}
+      />
 
       {/* Collapse Toggle Footer */}
       <div className="p-2 border-t border-rail-900/80 flex items-center justify-between bg-rail-950/60">
         {!collapsed && (
           <div className="px-2 text-[10px] text-slate-400 truncate">
-            <span className="font-semibold text-slate-300">RAILBLOCK v2.4</span>
+            <span className="font-semibold text-slate-300">RAILBLOCK v3.0</span>
             <span className="mx-1">•</span>
             <span>IR-CRIS</span>
           </div>

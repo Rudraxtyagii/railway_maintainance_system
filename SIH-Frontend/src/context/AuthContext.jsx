@@ -1,55 +1,39 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/authService';
+import { realtimeService } from '../services/realtimeService';
 
 const AuthContext = createContext(null);
 
-// Route access rules per RBAC role
+// Route access rules per RBAC role - strict departmental isolation (no dashboard, only block-requests, copilot, notifications, profile)
 const ROLE_ROUTE_PERMISSIONS = {
-  PLANNER_ADMIN: ['*'], // Full access to all routes
+  PLANNER_ADMIN: ['*'], // Full access to all routes for Central Planning Admin
   DEPT_ENGINEER: [
-    '/dashboard',
+    '/block-requests',
     '/ai-copilot',
     '/rail-gpt',
-    '/block-requests',
-    '/priority',
-    '/corridor-availability',
-    '/conflicts',
-    '/schedule',
-    '/profile',
-    '/rbac'
+    '/notifications',
+    '/profile'
   ],
   SNT_OFFICER: [
-    '/dashboard',
+    '/block-requests',
     '/ai-copilot',
     '/rail-gpt',
-    '/block-requests',
-    '/priority',
-    '/corridor-availability',
-    '/conflicts',
-    '/schedule',
-    '/profile',
-    '/rbac'
+    '/notifications',
+    '/profile'
   ],
   TRD_ENGINEER: [
-    '/dashboard',
+    '/block-requests',
     '/ai-copilot',
     '/rail-gpt',
-    '/block-requests',
-    '/priority',
-    '/corridor-availability',
-    '/conflicts',
-    '/schedule',
-    '/profile',
-    '/rbac'
+    '/notifications',
+    '/profile'
   ],
   FIELD_CONTROLLER: [
-    '/dashboard',
+    '/block-requests',
     '/ai-copilot',
     '/rail-gpt',
-    '/corridor-availability',
-    '/schedule',
-    '/profile',
-    '/rbac'
+    '/notifications',
+    '/profile'
   ]
 };
 
@@ -110,12 +94,12 @@ const ROLE_FEATURE_PERMISSIONS = {
     SUBMIT_ANY_REQUEST: false,
     SUBMIT_OWN_DEPT: false,
     SUBMIT_VOICE_MEMO: true,
-    APPROVE_BLOCK: false,
+    APPROVE_BLOCK: true,
     RUN_SOLVER: false,
     APPLY_RECOMMENDATION: false,
     SIGN_PTW: false,
-    OVERRIDE_PRIORITY: false,
-    GENERATE_TELEGRAPH: false,
+    OVERRIDE_PRIORITY: true,
+    GENERATE_TELEGRAPH: true,
     MANAGE_USERS: false,
     DATA_SYNC: false,
   }
@@ -124,10 +108,32 @@ const ROLE_FEATURE_PERMISSIONS = {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => authService.getCurrentUser());
   const [loading, setLoading] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] = useState('CONNECTING');
+  const [availableUsers, setAvailableUsers] = useState(() => authService.getMockUsers());
 
   // Modal state for Security PIN / Role Authorization Challenge
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [pendingTargetUser, setPendingTargetUser] = useState(null);
+
+  // Initialize Real-Time Connection
+  useEffect(() => {
+    realtimeService.connect();
+    const unsub = realtimeService.onStatusChange((status) => {
+      setRealtimeStatus(status);
+    });
+
+    // Fetch registered personnel from DB
+    authService.getRegisteredUsers().then(users => {
+      if (users && users.length > 0) {
+        setAvailableUsers(users);
+      }
+    });
+
+    return () => {
+      unsub();
+      realtimeService.disconnect();
+    };
+  }, []);
 
   const login = async (username, password) => {
     setLoading(true);
@@ -145,20 +151,15 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  /**
-   * Request Role Switch - opens security authorization challenge modal
-   */
   const requestRoleSwitch = (targetUserOrId) => {
-    const mockUsers = authService.getMockUsers();
     let target = null;
     if (typeof targetUserOrId === 'string') {
-      target = mockUsers.find(u => u.id === targetUserOrId || u.role === targetUserOrId || u.username === targetUserOrId);
+      target = availableUsers.find(u => u.id === targetUserOrId || u.role === targetUserOrId || u.username === targetUserOrId);
     } else if (targetUserOrId && typeof targetUserOrId === 'object') {
       target = targetUserOrId;
     }
-    if (!target) target = mockUsers[0];
+    if (!target) target = availableUsers[0];
 
-    // If already logged in as this user, no need to challenge
     if (user?.id === target.id) return;
 
     setPendingTargetUser(target);
@@ -170,9 +171,6 @@ export const AuthProvider = ({ children }) => {
     setPendingTargetUser(null);
   };
 
-  /**
-   * Authorize and Switch with verified Security PIN / Passcode
-   */
   const authorizeAndSwitch = async (pinOrPasscode) => {
     if (!pendingTargetUser) throw new Error('No target role specified.');
 
@@ -184,7 +182,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Direct switch without prompt (used internally or with authorization bypass if needed)
   const switchUser = (userId) => {
     requestRoleSwitch(userId);
   };
@@ -236,6 +233,7 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider value={{
       user,
       loading,
+      realtimeStatus,
       login,
       logout,
       switchUser,
@@ -260,7 +258,7 @@ export const AuthProvider = ({ children }) => {
       canRunOptimization,
       canSignPTW,
       canOverridePriority,
-      availableUsers: authService.getMockUsers()
+      availableUsers
     }}>
       {children}
     </AuthContext.Provider>

@@ -18,13 +18,17 @@ export const Login = () => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await login(username, password);
+      const loggedUser = await login(username, password);
       addToast({
         title: 'Authentication Successful',
-        message: 'Welcome to RAILBLOCK Operational Portal.',
+        message: `Welcome, ${loggedUser.name} (${loggedUser.designation || loggedUser.department}).`,
         type: 'success'
       });
-      navigate('/dashboard');
+      if (loggedUser.role === 'PLANNER_ADMIN') {
+        navigate('/dashboard');
+      } else {
+        navigate('/block-requests');
+      }
     } catch (err) {
       addToast({
         title: 'Authentication Failed',
@@ -80,10 +84,10 @@ export const Login = () => {
                   <div className="text-xs font-semibold text-emerald-900">{user.name} ({user.role === 'PLANNER_ADMIN' ? 'Planner / Admin' : user.department})</div>
                 </div>
                 <button
-                  onClick={() => navigate('/dashboard')}
+                  onClick={() => navigate(user.role === 'PLANNER_ADMIN' ? '/dashboard' : '/block-requests')}
                   className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-xs font-bold transition-colors flex items-center gap-1"
                 >
-                  <span>Dashboard</span>
+                  <span>{user.role === 'PLANNER_ADMIN' ? 'Dashboard' : 'Block Requests'}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>

@@ -10,13 +10,17 @@ from alembic import command
 from app.database import engine, Base
 from app.db_init import init_db
 from app.errors import register_error_handlers
+from app.realtime import router as realtime_router
 from app.routers import (
+    admin,
     ai_copilot,
     analytics,
     auth,
     conflicts,
     corridors,
     data_quality,
+    hitl,
+    ingest,
     ml_optimization,
     notifications,
     optimization,
@@ -51,12 +55,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="RAILBLOCK API",
+    title="RAILBLOCK API (v3.0)",
     description=(
-        "AI-Powered Automatic Block Planning backend — SIH PS 26027, "
-        "Ministry of Railways, Government of India."
+        "Real-Time Automatic Block Planning & RAG-Powered Command System — SIH PS 26027, "
+        "Ministry of Railways, Centre for Railway Information Systems (CRIS), Government of India."
     ),
-    version="1.0.0",
+    version="3.0.0",
     lifespan=lifespan
 )
 
@@ -71,7 +75,12 @@ app.add_middleware(
 
 register_error_handlers(app)
 
+# Mount Routers
+app.include_router(realtime_router)
 app.include_router(auth.router)
+app.include_router(admin.router)
+app.include_router(ingest.router)
+app.include_router(hitl.router)
 app.include_router(tasks.router)
 app.include_router(corridors.router)
 app.include_router(conflicts.conflicts_router)
@@ -89,7 +98,13 @@ app.include_router(notifications.router)
 
 @app.get("/", tags=["Health"])
 def root():
-    return {"service": "RAILBLOCK API", "status": "ok", "database": "PostgreSQL 16 / SQLAlchemy Persistent Store"}
+    return {
+        "service": "RAILBLOCK API (v3.0)",
+        "status": "ok",
+        "database": "PostgreSQL 16 / SQLAlchemy Persistent Store",
+        "realtimeStream": "WebSocket & SSE Active",
+        "ragEngine": "G&SR / ACTM / IRPWM / BWM Grounded Knowledge Base"
+    }
 
 
 @app.get("/health", tags=["Health"])
@@ -97,7 +112,12 @@ def health():
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        return {"status": "healthy", "db_status": "connected", "database": "PostgreSQL 16"}
+        return {
+            "status": "healthy",
+            "db_status": "connected",
+            "database": "PostgreSQL 16 / SQLite Persistent Store",
+            "ragStatus": "ready",
+            "realtimeStatus": "ready"
+        }
     except Exception as e:
         return {"status": "unhealthy", "db_status": "disconnected", "error": str(e)}
-

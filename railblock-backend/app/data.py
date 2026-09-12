@@ -119,88 +119,15 @@ CORRIDOR_WINDOWS: List[dict] = [
 ]
 
 # ---------------------------------------------------------------------------
-# Tasks (departmental block requests)
+# Tasks (departmental block requests) - Clean Slate Initial State
 # ---------------------------------------------------------------------------
-TASKS: List[dict] = [
-    {
-        "id": "TSK-ENG-101", "source": "TMS", "department": "Engineering",
-        "description": "Deep screening and ballast tamping between UP Main Km 14/2 - 16/4",
-        "location": "Km 14/2 - 16/4, Sahibabad Outer", "corridor": "NDLS-GZB",
-        "defectType": "Track Geometry / Ballast Deficiency", "severity": "Critical", "severityWeight": 4,
-        "overdueDays": 14, "priorityScore": 98, "status": "Pending", "requestedDate": "2026-09-08",
-        "preferredWindow": "01:30 - 04:30", "durationHours": 3.0, "requiresPowerBlock": False,
-        "requiresTrafficBlock": True, "speedRestrictionKmph": 45, "createdAt": "2026-08-25T08:30:00Z",
-    },
-    {
-        "id": "TSK-TRD-201", "source": "TDMS", "department": "Traction Distribution",
-        "description": "OHE catenary tension re-adjustment near Sahibabad yard throat",
-        "location": "Km 15/0, Sahibabad Outer", "corridor": "NDLS-GZB",
-        "defectType": "OHE Tension / Catenary Sag", "severity": "High", "severityWeight": 3,
-        "overdueDays": 9, "priorityScore": priority_score(3, 9), "status": "Pending",
-        "requestedDate": "2026-09-08", "preferredWindow": "01:30 - 04:30", "durationHours": 2.5,
-        "requiresPowerBlock": True, "requiresTrafficBlock": True, "speedRestrictionKmph": None,
-        "createdAt": "2026-08-26T09:15:00Z",
-    },
-    {
-        "id": "TSK-SNT-301", "source": "SMMS", "department": "Signal & Telecom",
-        "description": "Axle counter replacement and cable route re-termination",
-        "location": "Km 14/8, Sahibabad Outer", "corridor": "NDLS-GZB",
-        "defectType": "Signal Equipment Fault", "severity": "High", "severityWeight": 3,
-        "overdueDays": 6, "priorityScore": priority_score(3, 6), "status": "Pending",
-        "requestedDate": "2026-09-08", "preferredWindow": "01:30 - 04:30", "durationHours": 2.0,
-        "requiresPowerBlock": False, "requiresTrafficBlock": True, "speedRestrictionKmph": None,
-        "createdAt": "2026-08-27T11:00:00Z",
-    },
-    {
-        "id": "TSK-ENG-102", "source": "TMS", "department": "Engineering",
-        "description": "Rail flaw detection follow-up and thermit weld repair",
-        "location": "Km 22/6, Ghaziabad Yard", "corridor": "NDLS-GZB",
-        "defectType": "Rail Fracture Risk", "severity": "Medium", "severityWeight": 2,
-        "overdueDays": 3, "priorityScore": priority_score(2, 3), "status": "Pending",
-        "requestedDate": "2026-09-09", "preferredWindow": "02:00 - 05:00", "durationHours": 2.5,
-        "requiresPowerBlock": False, "requiresTrafficBlock": True, "speedRestrictionKmph": 30,
-        "createdAt": "2026-08-28T10:00:00Z",
-    },
-    {
-        "id": "TSK-TRD-202", "source": "TDMS", "department": "Traction Distribution",
-        "description": "Insulator string replacement, three spans",
-        "location": "Km 8/2, Naini Outer", "corridor": "DDU-PRYJ",
-        "defectType": "Insulator Degradation", "severity": "Medium", "severityWeight": 2,
-        "overdueDays": 5, "priorityScore": priority_score(2, 5), "status": "Pending",
-        "requestedDate": "2026-09-10", "preferredWindow": "23:30 - 02:30", "durationHours": 2.0,
-        "requiresPowerBlock": True, "requiresTrafficBlock": True, "speedRestrictionKmph": None,
-        "createdAt": "2026-08-29T12:00:00Z",
-    },
-]
+TASKS: List[dict] = []
 
 # ---------------------------------------------------------------------------
-# Conflicts & bundles
+# Conflicts & bundles - Clean Slate Initial State
 # ---------------------------------------------------------------------------
-CONFLICTS: List[dict] = [
-    {
-        "id": "CNF-001", "type": "Spatial Overlap", "corridor": "NDLS-GZB", "date": "2026-09-08",
-        "departments": ["Engineering", "Traction Distribution", "Signal & Telecom"],
-        "taskIds": ["TSK-ENG-101", "TSK-TRD-201", "TSK-SNT-301"],
-        "description": "Three departments have requested overlapping block windows within Km 14/2-16/4.",
-        "status": "Open",
-    },
-    {
-        "id": "CNF-002", "type": "Power Block Overlap", "corridor": "DDU-PRYJ", "date": "2026-09-10",
-        "departments": ["Traction Distribution"],
-        "taskIds": ["TSK-TRD-202"],
-        "description": "Requested power block overlaps with scheduled OHE maintenance train movement.",
-        "status": "Open",
-    },
-]
-
-BUNDLES: List[dict] = [
-    {
-        "id": "BUN-101", "corridor": "NDLS-GZB", "date": "2026-09-08",
-        "departments": ["Engineering", "Traction Distribution", "Signal & Telecom"],
-        "taskIds": ["TSK-ENG-101", "TSK-TRD-201", "TSK-SNT-301"],
-        "windowId": "WIN-NDLS-01", "downtimeSavedHours": 4.5, "status": "Candidate",
-    },
-]
+CONFLICTS: List[dict] = []
+BUNDLES: List[dict] = []
 
 # ---------------------------------------------------------------------------
 # Master schedule (populated by /api/optimization/run and manual approvals)

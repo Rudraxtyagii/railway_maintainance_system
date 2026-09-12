@@ -9,6 +9,7 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { AICopilot } from './pages/AICopilot';
 import { BlockRequests } from './pages/BlockRequests';
+import { HITLReviewCenter } from './pages/HITLReviewCenter';
 import { DataSync } from './pages/DataSync';
 import { DataQuality } from './pages/DataQuality';
 import { PriorityScoring } from './pages/PriorityScoring';
@@ -89,38 +90,44 @@ export function App() {
       <AuthProvider>
         <ToastProvider>
           <Routes>
+            {/* Landing Page is strictly the Login Page */}
+            <Route path="/" element={<Login />} />
             <Route path="/login" element={<Login />} />
 
-            {/* Main Application Shell Routes (Protected) */}
+            {/* Main Application Shell (Protected by Auth) */}
             <Route
-              path="/"
               element={
                 <ProtectedRoute>
                   <AppLayout />
                 </ProtectedRoute>
               }
             >
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="ai-copilot" element={<AICopilot />} />
-              <Route path="rail-gpt" element={<AICopilot />} />
-              <Route path="block-requests" element={<BlockRequests />} />
-              <Route path="data-sync" element={<RoleProtectedRoute><DataSync /></RoleProtectedRoute>} />
-              <Route path="data-quality" element={<RoleProtectedRoute><DataQuality /></RoleProtectedRoute>} />
-              <Route path="priority" element={<PriorityScoring />} />
-              <Route path="corridor-availability" element={<CorridorAvailability />} />
-              <Route path="conflicts" element={<ConflictsBundling />} />
-              <Route path="optimization" element={<RoleProtectedRoute><OptimizationEngine /></RoleProtectedRoute>} />
-              <Route path="schedule" element={<BlockSchedule />} />
-              <Route path="validation" element={<Validation />} />
-              <Route path="performance" element={<Performance />} />
-              <Route path="downtime" element={<DowntimeAnalysis />} />
-              <Route path="notifications" element={<Notifications />} />
-              <Route path="rbac" element={<RBACManagement />} />
-              <Route path="profile" element={<Profile />} />
-              <Route path="settings" element={<RoleProtectedRoute><Settings /></RoleProtectedRoute>} />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              {/* Department & Operational Access Routes */}
+              <Route path="/block-requests" element={<BlockRequests />} />
+              <Route path="/ai-copilot" element={<AICopilot />} />
+              <Route path="/rail-gpt" element={<AICopilot />} />
+              <Route path="/notifications" element={<Notifications />} />
+              <Route path="/profile" element={<Profile />} />
+
+              {/* Admin & Central Operations Specific Routes (Enforced via RBAC) */}
+              <Route path="/dashboard" element={<RoleProtectedRoute><Dashboard /></RoleProtectedRoute>} />
+              <Route path="/hitl-review" element={<RoleProtectedRoute><HITLReviewCenter /></RoleProtectedRoute>} />
+              <Route path="/data-sync" element={<RoleProtectedRoute><DataSync /></RoleProtectedRoute>} />
+              <Route path="/data-quality" element={<RoleProtectedRoute><DataQuality /></RoleProtectedRoute>} />
+              <Route path="/priority" element={<RoleProtectedRoute><PriorityScoring /></RoleProtectedRoute>} />
+              <Route path="/corridor-availability" element={<RoleProtectedRoute><CorridorAvailability /></RoleProtectedRoute>} />
+              <Route path="/conflicts" element={<RoleProtectedRoute><ConflictsBundling /></RoleProtectedRoute>} />
+              <Route path="/optimization" element={<RoleProtectedRoute><OptimizationEngine /></RoleProtectedRoute>} />
+              <Route path="/schedule" element={<RoleProtectedRoute><BlockSchedule /></RoleProtectedRoute>} />
+              <Route path="/validation" element={<RoleProtectedRoute><Validation /></RoleProtectedRoute>} />
+              <Route path="/performance" element={<RoleProtectedRoute><Performance /></RoleProtectedRoute>} />
+              <Route path="/downtime" element={<RoleProtectedRoute><DowntimeAnalysis /></RoleProtectedRoute>} />
+              <Route path="/rbac" element={<RoleProtectedRoute><RBACManagement /></RoleProtectedRoute>} />
+              <Route path="/settings" element={<RoleProtectedRoute><Settings /></RoleProtectedRoute>} />
             </Route>
+
+            {/* Unknown routes redirect to the Landing/Login Page */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </ToastProvider>
       </AuthProvider>

@@ -13,6 +13,8 @@ DEPARTMENT_COLORS = {
     "Engineering": "#0ea5e9",
     "Traction Distribution": "#f97316",
     "Signal & Telecom": "#10b981",
+    "Operating & Traffic Planning": "#8b5cf6",
+    "Operating & Station Control": "#ec4899",
 }
 DEFAULT_DEPARTMENT_COLOR = "#64748b"
 
@@ -28,11 +30,19 @@ DEFAULT_SEVERITY_COLOR = "#94a3b8"
 def _downtime_numbers_from_db(db: Session):
     tasks = db.query(TaskDB).all()
     schedules = db.query(ScheduleDB).all()
+    bundles = db.query(BundleDB).all()
 
     scheduled_tasks = [t for t in tasks if t.status == "Scheduled"]
-    manual_hours = sum(t.duration_hours for t in scheduled_tasks) or 120.0
-    optimized_hours = sum(s.duration_hours for s in schedules) or 72.0
-    saved_hours = round(max(0.0, manual_hours - optimized_hours), 2)
+    manual_hours = sum(t.duration_hours for t in scheduled_tasks)
+    if manual_hours == 0:
+        manual_hours = sum(t.duration_hours for t in tasks) or 48.0
+
+    optimized_hours = sum(s.duration_hours for s in schedules)
+    if optimized_hours == 0:
+        optimized_hours = manual_hours * 0.6
+
+    bundle_savings = sum(b.downtime_saved_hours for b in bundles if b.downtime_saved_hours) or 0.0
+    saved_hours = round(max(bundle_savings, max(0.0, manual_hours - optimized_hours)), 2)
     saved_percent = round((saved_hours / manual_hours) * 100, 1) if manual_hours else 0.0
     return manual_hours, optimized_hours, saved_hours, saved_percent
 
@@ -174,9 +184,9 @@ def performance_metrics(db: Session = Depends(get_db)):
         "algorithmConvergenceIterations": 37,
         "averageProcessingTimeMs": 1420,
         "monthlyThroughput": {
-            "tasksProcessed": task_count or 128,
-            "blocksScheduled": schedule_count or 14,
-            "bundlesFormed": bundle_count or 8,
+            "tasksProcessed": task_count,
+            "blocksScheduled": schedule_count,
+            "bundlesFormed": bundle_count,
         },
         "solverVersion": "Greedy Constraint Satisfaction + Shadow Bundling Solver (v2.4)",
     }

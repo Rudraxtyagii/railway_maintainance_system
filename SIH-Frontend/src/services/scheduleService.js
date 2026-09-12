@@ -79,5 +79,14 @@ export const scheduleService = {
       s.id === id ? { ...s, status: 'Published', controllerApproval: 'Published to COA / FOIS Live Timetable' } : s
     );
     return schedulesState.find(s => s.id === id);
+  },
+
+  async generateMasterSchedule() {
+    if (!USE_MOCK) {
+      const res = await apiClient.post('/schedules/generate');
+      if (res) return res;
+    }
+    await apiClient.simulateDelay(300);
+    return schedulesState;
   }
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Filter, Eye, Edit3, Trash2, CheckCircle, Search, RefreshCw, Train } from 'lucide-react';
+import { Plus, Filter, Eye, Edit3, Trash2, CheckCircle, Search, RefreshCw, Train, Shield, ArrowRight } from 'lucide-react';
 import { PageHeader } from '../components/common/PageHeader';
 import { DataTable } from '../components/common/DataTable';
 import { StatusBadge } from '../components/common/StatusBadge';
@@ -14,7 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { CORRIDORS, DEPARTMENTS } from '../data/mockData';
 
 export const BlockRequests = () => {
-  const { isPlannerAdmin, userDepartment } = useAuth();
+  const { isPlannerAdmin, userDepartment, user } = useAuth();
   const { addToast } = useToast();
 
   const [tasks, setTasks] = useState([]);
@@ -215,6 +215,21 @@ export const BlockRequests = () => {
       )
     },
     {
+      header: 'HITL Status',
+      key: 'hitlStatus',
+      sortable: true,
+      render: (val) => (
+        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+          val === 'CONTROLLER_APPROVED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+          val === 'CONTROLLER_MODIFIED' ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' :
+          val === 'CONTROLLER_DENIED' ? 'bg-red-100 text-red-800 border border-red-200' :
+          val === 'EMERGENCY_OVERRIDE_APPROVED' ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-700'
+        }`}>
+          {val || 'PENDING_REVIEW'}
+        </span>
+      )
+    },
+    {
       header: 'Status',
       key: 'status',
       sortable: true,
@@ -223,7 +238,7 @@ export const BlockRequests = () => {
     {
       header: 'Actions',
       key: 'actions',
-      className: 'w-24 text-right',
+      className: 'w-28 text-right',
       render: (_, row) => (
         <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
           <button
@@ -257,14 +272,105 @@ export const BlockRequests = () => {
     }
   ];
 
+  const handleIngestLiveStreamSample = async () => {
+    try {
+      const depts = [
+        {
+          divisionId: 'DLI',
+          sectionName: 'NDLS-GZB',
+          lineType: 'UP Main',
+          stationFrom: 'NDLS',
+          stationTo: 'GZB',
+          nominatedDate: '2026-09-18',
+          plannedStartTime: '01:30',
+          plannedEndTime: '04:30',
+          demandedTime: '3.0 hrs',
+          requestingDept: 'Engineering',
+          blockPurpose: 'Mechanized Track Deep Screening & Packing',
+          description: 'BCM Machine deployment Section Km 22/0 to 24/0',
+          trafficImpactStatus: 'Zero Passenger Delay / Night Corridor',
+          corridor: 'NDLS-GZB',
+          location: 'Section Km 22/0',
+          severity: 'Critical',
+          overdueDays: 5,
+          requiresPowerBlock: true,
+          requiresTrafficBlock: true,
+          speedRestrictionKmph: 25
+        },
+        {
+          divisionId: 'DLI',
+          sectionName: 'NDLS-GZB',
+          lineType: 'UP Slow',
+          stationFrom: 'ANVR',
+          stationTo: 'SBB',
+          nominatedDate: '2026-09-18',
+          plannedStartTime: '02:00',
+          plannedEndTime: '04:00',
+          demandedTime: '2.0 hrs',
+          requestingDept: 'Traction Distribution',
+          blockPurpose: '25kV OHE Contact Wire Inspection',
+          description: 'OHE bracket alignment & dropper inspection',
+          trafficImpactStatus: 'Zero Delay',
+          corridor: 'NDLS-GZB',
+          location: 'Section Km 23/2',
+          severity: 'High',
+          overdueDays: 2,
+          requiresPowerBlock: true,
+          requiresTrafficBlock: false,
+          speedRestrictionKmph: 30
+        }
+      ];
+
+      const { ingestService } = await import('../services/ingestService');
+      const res = await ingestService.ingestStreamBatch(depts, 'COA_LIVE_FEED');
+      addToast({
+        title: 'Real-Time Stream Ingested',
+        message: `Successfully ingested ${res.recordsIngested} COA records into PostgreSQL! Stream ID: ${res.streamId}`,
+        type: 'success'
+      });
+      loadData();
+    } catch (err) {
+      addToast({ title: 'Stream Ingestion Error', message: err.message, type: 'error' });
+    }
+  };
+
+  const departmentTasks = isPlannerAdmin
+    ? tasks
+    : tasks.filter(t => !userDepartment || t.department === userDepartment || (t.department && userDepartment && t.department.toLowerCase().includes(userDepartment.toLowerCase())));
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
-        title="Block Requests Register"
-        subtitle="Multi-departmental maintenance request backlog from Engineering (TMS), Traction (TDMS), and Signal & Telecom (SMMS)."
-        badge="TMS • SMMS • TDMS Feeds"
+        title={isPlannerAdmin ? "Central Block Requests Backlog" : `${user?.department || 'Departmental'} Block Requisitions`}
+        subtitle={
+          isPlannerAdmin
+            ? "Unified register of maintenance demands across Engineering, S&T, and Traction Distribution. Senior DOM review and sanction authority active."
+            : "Submit railway maintenance traffic and power block demands to Central Planning (Sr. DOM) and track live sanction status."
+        }
+        badge={isPlannerAdmin ? "Central Planning Governance" : `${user?.department || 'Department'} Requisition Portal`}
         actions={
           <div className="flex items-center gap-2">
+            {isPlannerAdmin ? (
+              <>
+                <button
+                  onClick={handleIngestLiveStreamSample}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-xs font-semibold shadow-sm transition-all"
+                  title="Ingest live CRIS COA 3-tier telemetry stream batch"
+                >
+                  <Train className="w-3.5 h-3.5" />
+                  <span>📡 Ingest Live COA Stream</span>
+                </button>
+                <a
+                  href="/hitl-review"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 rounded-md text-xs font-semibold shadow-sm transition-all"
+                  title="Admin/DOM reviews and approves departmental requisitions"
+                >
+                  <Shield className="w-3.5 h-3.5 text-amber-400" />
+                  <span>HITL Approval Queue</span>
+                  <ArrowRight className="w-3 h-3 text-slate-400" />
+                </a>
+              </>
+            ) : null}
             <button
               onClick={loadData}
               className="p-2 text-slate-600 bg-white border border-slate-300 rounded-md hover:bg-slate-50 shadow-sm"
@@ -272,97 +378,301 @@ export const BlockRequests = () => {
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
-            <button
-              onClick={() => setIsCreateOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-rail-900 hover:bg-rail-800 text-white rounded-md text-xs font-semibold shadow-sm transition-all"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Create Block Request</span>
-            </button>
           </div>
         }
       />
 
-      {/* Filter Bar */}
-      <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-        <div>
-          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-            Department
-          </label>
-          <select
-            value={departmentFilter}
-            onChange={(e) => setDepartmentFilter(e.target.value)}
-            className="w-full text-xs p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
+      {/* Role Notice Banner for Admin */}
+      {isPlannerAdmin && (
+        <div className="p-3 bg-gradient-to-r from-slate-900 to-rail-950 text-white rounded-lg border border-slate-800 shadow-sm flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center font-bold">
+              <Shield className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="font-bold text-amber-300">Admin Governance Mode (Sr. DOM / Central Planning):</span>
+              <span className="text-slate-300 ml-1.5">
+                You have review and sanctioning authority. In accordance with IR protocol, requisitions are submitted by Departmental Officers (Engineering, S&T, TRD).
+              </span>
+            </div>
+          </div>
+          <a
+            href="/hitl-review"
+            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[11px] shrink-0 transition-colors"
           >
-            <option value="ALL">All Departments (3)</option>
-            <option value="Engineering">Engineering (TMS)</option>
-            <option value="Traction Distribution">Traction Distribution (TDMS)</option>
-            <option value="Signal & Telecom">Signal & Telecom (SMMS)</option>
-          </select>
+            Review Pending Blocks →
+          </a>
+        </div>
+      )}
+
+      {/* Direct Requisition Form Card for Department Officers */}
+      {!isPlannerAdmin && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-card p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-rail-900 text-white flex items-center justify-center font-bold">
+                <Plus className="w-4 h-4 text-ir-saffron" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider font-mono">
+                  Submit New Block Requisition
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Transmitted directly to Central Planning & Sr. DOM for corridor evaluation
+                </p>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 text-[11px] font-mono font-bold border border-emerald-200">
+              Department: {userDepartment || user?.department || 'Engineering'}
+            </span>
+          </div>
+
+          <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Corridor Section *
+                </label>
+                <select
+                  value={formData.corridor}
+                  onChange={(e) => setFormData({ ...formData, corridor: e.target.value })}
+                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
+                >
+                  {CORRIDORS.map(c => (
+                    <option key={c.id} value={c.id}>{c.id} - {c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Defect / Maintenance Type *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.defectType}
+                  onChange={(e) => setFormData({ ...formData, defectType: e.target.value })}
+                  placeholder="e.g. Turnout Renewal / OHE Dropper Inspection"
+                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Location (Km / Track / Station) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.location}
+                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  placeholder="e.g. Km 22/4 - 24/0 UP Main"
+                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                Detailed Scope of Work & Machinery Requirements *
+              </label>
+              <textarea
+                rows={2}
+                required
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Specify track tampers, OHE tower wagons, personnel clearance, speed restrictions..."
+                className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Preferred Date
+                </label>
+                <input
+                  type="date"
+                  value={formData.preferredDate}
+                  onChange={(e) => setFormData({ ...formData, preferredDate: e.target.value })}
+                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Preferred Time Window
+                </label>
+                <input
+                  type="text"
+                  value={formData.preferredWindow}
+                  onChange={(e) => setFormData({ ...formData, preferredWindow: e.target.value })}
+                  placeholder="01:30 - 04:00"
+                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Duration (Hours)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0.5"
+                  max="6"
+                  value={formData.durationHours}
+                  onChange={(e) => setFormData({ ...formData, durationHours: parseFloat(e.target.value) })}
+                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Severity Priority
+                </label>
+                <select
+                  value={formData.severity}
+                  onChange={(e) => setFormData({ ...formData, severity: e.target.value })}
+                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
+                >
+                  <option value="Critical">Critical (P1)</option>
+                  <option value="High">High (P2)</option>
+                  <option value="Medium">Medium (P3)</option>
+                  <option value="Low">Low (P4)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <div className="flex items-center gap-6">
+                <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={formData.requiresTrafficBlock}
+                    onChange={(e) => setFormData({ ...formData, requiresTrafficBlock: e.target.checked })}
+                    className="rounded border-slate-300 text-rail-800 focus:ring-rail-700"
+                  />
+                  <span>Traffic Block Required</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={formData.requiresPowerBlock}
+                    onChange={(e) => setFormData({ ...formData, requiresPowerBlock: e.target.checked })}
+                    className="rounded border-slate-300 text-rail-800 focus:ring-rail-700"
+                  />
+                  <span>25kV Power Block Required</span>
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                className="px-5 py-2 bg-rail-900 hover:bg-rail-800 text-white font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5 text-ir-saffron" />
+                <span>Submit Requisition to Central Planning</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Admin Multi-Department Filter Bar */}
+      {isPlannerAdmin && (
+        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+              Department
+            </label>
+            <select
+              value={departmentFilter}
+              onChange={(e) => setDepartmentFilter(e.target.value)}
+              className="w-full text-xs p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
+            >
+              <option value="ALL">All Departments (3)</option>
+              <option value="Engineering">Engineering (TMS)</option>
+              <option value="Traction Distribution">Traction Distribution (TDMS)</option>
+              <option value="Signal & Telecom">Signal & Telecom (SMMS)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+              Corridor
+            </label>
+            <select
+              value={corridorFilter}
+              onChange={(e) => setCorridorFilter(e.target.value)}
+              className="w-full text-xs p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
+            >
+              <option value="ALL">All HDN Corridors</option>
+              {CORRIDORS.map((c) => (
+                <option key={c.id} value={c.id}>{c.id} ({c.name.split('(')[0]})</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+              Severity
+            </label>
+            <select
+              value={severityFilter}
+              onChange={(e) => setSeverityFilter(e.target.value)}
+              className="w-full text-xs p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
+            >
+              <option value="ALL">All Severities</option>
+              <option value="Critical">Critical (P1)</option>
+              <option value="High">High (P2)</option>
+              <option value="Medium">Medium (P3)</option>
+              <option value="Low">Low (P4)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+              Status
+            </label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full text-xs p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="Pending">Pending</option>
+              <option value="Under Review">Under Review</option>
+              <option value="Approved">Approved</option>
+              <option value="Scheduled">Scheduled</option>
+              <option value="Rejected">Rejected</option>
+            </select>
+          </div>
+        </div>
+      )}
+
+      {/* Requisitions & Approval Status Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-card p-4 space-y-3">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider font-mono">
+            {isPlannerAdmin ? "Central Block Backlog Register" : "My Department's Submitted Requisitions & Approval Status"}
+          </h3>
+          <span className="text-[11px] text-slate-500 font-mono">
+            {isPlannerAdmin ? "Live Cross-Departmental Log" : "Official Sanction Status from Sr. DOM"}
+          </span>
         </div>
 
-        <div>
-          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-            Corridor
-          </label>
-          <select
-            value={corridorFilter}
-            onChange={(e) => setCorridorFilter(e.target.value)}
-            className="w-full text-xs p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
-          >
-            <option value="ALL">All HDN Corridors</option>
-            {CORRIDORS.map((c) => (
-              <option key={c.id} value={c.id}>{c.id} ({c.name.split('(')[0]})</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-            Severity
-          </label>
-          <select
-            value={severityFilter}
-            onChange={(e) => setSeverityFilter(e.target.value)}
-            className="w-full text-xs p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
-          >
-            <option value="ALL">All Severities</option>
-            <option value="Critical">Critical (P1)</option>
-            <option value="High">High (P2)</option>
-            <option value="Medium">Medium (P3)</option>
-            <option value="Low">Low (P4)</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-            Status
-          </label>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full text-xs p-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-1 focus:ring-rail-700 focus:outline-none"
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="Pending">Pending</option>
-            <option value="Under Review">Under Review</option>
-            <option value="Approved">Approved</option>
-            <option value="Scheduled">Scheduled</option>
-            <option value="Rejected">Rejected</option>
-          </select>
-        </div>
+        <DataTable
+          columns={columns}
+          data={departmentTasks}
+          loading={loading}
+          pageSize={8}
+          searchKeys={['id', 'description', 'location', 'defectType', 'corridor']}
+          searchPlaceholder={isPlannerAdmin ? "Search by ID, defect, location, or corridor..." : "Search my department requisitions..."}
+          onRowClick={(row) => setSelectedTask(row)}
+        />
       </div>
-
-      {/* Main Table */}
-      <DataTable
-        columns={columns}
-        data={tasks}
-        loading={loading}
-        pageSize={8}
-        searchKeys={['id', 'description', 'location', 'defectType', 'corridor']}
-        searchPlaceholder="Search by ID, defect, Km location, or corridor..."
-        onRowClick={(row) => setSelectedTask(row)}
-      />
 
       {/* View Detail Modal */}
       {selectedTask && (

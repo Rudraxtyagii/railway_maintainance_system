@@ -68,8 +68,8 @@ export const OptimizationEngine = () => {
     { num: 8, title: 'Validating Schedule Safety Integrity', desc: 'Verifying 15-minute buffers and corridor speed clearance' }
   ];
 
-  useEffect(() => {
-    const loadData = async () => {
+  const loadData = async () => {
+    try {
       const inputsData = await optimizationService.getOptimizationInputs();
       setInputs(inputsData);
 
@@ -85,8 +85,25 @@ export const OptimizationEngine = () => {
 
       const insights = await mlOptimizationService.getMLInsights();
       setMlInsights(insights);
-    };
+    } catch (err) {
+      console.warn('OptimizationEngine load error:', err);
+    }
+  };
+
+  useEffect(() => {
     loadData();
+
+    const handleDataChanged = () => {
+      loadData();
+    };
+
+    window.addEventListener('railblock:data_changed', handleDataChanged);
+    window.addEventListener('railblock:metrics_updated', handleDataChanged);
+
+    return () => {
+      window.removeEventListener('railblock:data_changed', handleDataChanged);
+      window.removeEventListener('railblock:metrics_updated', handleDataChanged);
+    };
   }, []);
 
   const handleRefreshML = async () => {
@@ -118,18 +135,27 @@ export const OptimizationEngine = () => {
     // Multi-stage progression simulator
     for (let i = 1; i <= 8; i++) {
       setCurrentStage(i);
-      await new Promise(res => setTimeout(res, 450));
+      await new Promise(res => setTimeout(res, 350));
     }
 
     try {
       const result = await optimizationService.runOptimization();
       setResults(result);
       setOptimizing(false);
+      
+      // Instantly refresh pre-run inputs
+      const updatedInputs = await optimizationService.getOptimizationInputs();
+      setInputs(updatedInputs);
+
       addToast({
         title: 'Optimization Complete',
-        message: 'Generated 14 optimized block windows. Saved 48 hours of total corridor downtime.',
+        message: `Generated ${result.scheduledBlocks?.length || 0} optimized block windows (${result.summary?.tasksScheduled || 0} tasks scheduled). Saved ${result.summary?.downtimeSavedHours || 0} hours of corridor downtime.`,
         type: 'success'
       });
+
+      // Broadcast to other components (Dashboard, Master Schedule, Header)
+      window.dispatchEvent(new CustomEvent('railblock:data_changed', { detail: { action: 'OPTIMIZATION_COMPLETED' } }));
+      window.dispatchEvent(new CustomEvent('railblock:schedule_approved', { detail: result }));
     } catch (err) {
       setOptimizing(false);
       addToast({ title: 'Optimization Failed', message: err.message, type: 'error' });
@@ -265,25 +291,25 @@ export const OptimizationEngine = () => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-center">
                 <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Pending Tasks</div>
-                <div className="text-2xl font-extrabold font-mono text-slate-900">{inputs?.totalPendingTasks || 128}</div>
-                <div className="text-[11px] text-slate-400 mt-1">18 High Priority</div>
+                <div className="text-2xl font-extrabold font-mono text-slate-900">{inputs?.totalPendingTasks ?? 0}</div>
+                <div className="text-[11px] text-slate-400 mt-1">{inputs?.highPriorityTasks ?? 0} High Priority</div>
               </div>
 
               <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-center">
                 <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Available Windows</div>
-                <div className="text-2xl font-extrabold font-mono text-emerald-700">{inputs?.availableWindows || 34}</div>
+                <div className="text-2xl font-extrabold font-mono text-emerald-700">{inputs?.availableWindows ?? 0}</div>
                 <div className="text-[11px] text-slate-400 mt-1">COA Timetable Slots</div>
               </div>
 
               <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-center">
                 <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Active Conflicts</div>
-                <div className="text-2xl font-extrabold font-mono text-rose-600">{inputs?.detectedConflicts || 12}</div>
+                <div className="text-2xl font-extrabold font-mono text-rose-600">{inputs?.detectedConflicts ?? 0}</div>
                 <div className="text-[11px] text-slate-400 mt-1">Spatial & Power Clashes</div>
               </div>
 
               <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-center">
                 <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Bundle Candidates</div>
-                <div className="text-2xl font-extrabold font-mono text-rail-900">{inputs?.bundleCandidates || 8}</div>
+                <div className="text-2xl font-extrabold font-mono text-rail-900">{inputs?.bundleCandidates ?? 0}</div>
                 <div className="text-[11px] text-slate-400 mt-1">Multi-Disciplinary</div>
               </div>
             </div>

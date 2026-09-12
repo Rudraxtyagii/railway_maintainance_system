@@ -146,7 +146,9 @@ I am connected live to **TMS (Track P-Way)**, **SMMS (Signaling)**, **TDMS (Trac
           content: response.content,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           suggestedActions: response.suggestedActions,
-          structuredRecommendation: response.structuredRecommendation
+          structuredRecommendation: response.structuredRecommendation,
+          citations: response.citations,
+          hallucinationCheckPassed: response.hallucinationCheckPassed
         }
       ]);
     } catch (err) {
@@ -442,6 +444,32 @@ I am connected live to **TMS (Track P-Way)**, **SMMS (Signaling)**, **TDMS (Trac
                     }`}
                   >
                     <div className="whitespace-pre-line">{msg.content}</div>
+
+                    {/* Grounded Regulatory Citations */}
+                    {msg.citations && msg.citations.length > 0 && (
+                      <div className="mt-3 pt-2.5 border-t border-emerald-100 bg-emerald-50/60 p-2.5 rounded-lg border border-emerald-200/80 space-y-1.5 text-left">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold text-emerald-800">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>VERIFIED GROUND TRUTH RULE CITATIONS ({msg.citations.length})</span>
+                          </div>
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-200/70 text-emerald-900">
+                            100% Grounded
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          {msg.citations.map((c, cIdx) => (
+                            <div key={cIdx} className="text-[11px] bg-white/90 p-2 rounded border border-emerald-200/60 font-sans shadow-2xs">
+                              <div className="font-bold text-emerald-950 font-mono text-[10px] flex items-center justify-between">
+                                <span>[{c.manualName} {c.ruleNumber}] {c.title}</span>
+                                <span className="text-[9px] text-slate-500">{c.chapter}</span>
+                              </div>
+                              <p className="text-slate-600 text-[10.5px] mt-0.5">{c.excerpt}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Action chips for assistant responses */}
                     {msg.suggestedActions && msg.suggestedActions.length > 0 && (

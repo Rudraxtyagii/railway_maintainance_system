@@ -17,6 +17,18 @@ export const Notifications = () => {
 
   useEffect(() => {
     loadNotifs();
+
+    const handleRealtimeNotif = (e) => {
+      loadNotifs();
+    };
+
+    window.addEventListener('railblock:realtime_event', handleRealtimeNotif);
+    window.addEventListener('railblock:notification_created', handleRealtimeNotif);
+
+    return () => {
+      window.removeEventListener('railblock:realtime_event', handleRealtimeNotif);
+      window.removeEventListener('railblock:notification_created', handleRealtimeNotif);
+    };
   }, []);
 
   const handleMarkAllRead = async () => {

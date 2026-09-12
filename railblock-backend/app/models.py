@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import List, Optional
-
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
-# Auth
+# Auth & User Management
 # ---------------------------------------------------------------------------
 class LoginRequest(BaseModel):
     username: str
@@ -24,6 +23,10 @@ class UserOut(BaseModel):
     division: str
     email: str
     avatar: str
+    permissions: Optional[List[str]] = Field(default_factory=list)
+    isActive: Optional[bool] = True
+    createdAt: Optional[str] = None
+    lastLogin: Optional[str] = None
 
 
 class LoginResponse(BaseModel):
@@ -31,47 +34,237 @@ class LoginResponse(BaseModel):
     user: UserOut
 
 
+class UserCreateRequest(BaseModel):
+    username: str
+    password: str
+    name: str
+    email: str
+    role: str  # PLANNER_ADMIN | DEPT_ENGINEER | SNT_OFFICER | TRD_ENGINEER | FIELD_CONTROLLER
+    department: str
+    designation: str
+    zone: Optional[str] = "Northern Railway"
+    division: Optional[str] = "Delhi Division"
+    avatar: Optional[str] = "IR"
+    permissions: Optional[List[str]] = None
+
+
+class UserUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    department: Optional[str] = None
+    designation: Optional[str] = None
+    zone: Optional[str] = None
+    division: Optional[str] = None
+    password: Optional[str] = None
+    isActive: Optional[bool] = None
+    permissions: Optional[List[str]] = None
+
+
 # ---------------------------------------------------------------------------
-# Tasks (departmental maintenance block requests)
+# Tasks (3-Tier CRIS COA / TMS Rolling Block Demands & Execution Logs)
 # ---------------------------------------------------------------------------
 class Task(BaseModel):
     id: str
     source: str = "MANUAL"
-    department: str
-    description: str
-    location: str
+    divisionId: Optional[str] = "DLI"
+    sectionName: Optional[str] = "NDLS-GZB"
+    lineType: Optional[str] = "UP Main"
+    stationFrom: Optional[str] = "NDLS"
+    stationTo: Optional[str] = "GZB"
     corridor: str
+    location: str
+    department: str
+    requestingDept: Optional[str] = None
     defectType: str
+    blockPurpose: Optional[str] = "Track & Overhead Maintenance"
+    description: str
     severity: str
     severityWeight: int
     overdueDays: int
     priorityScore: int
     status: str = "Pending"
+    nominatedDate: Optional[str] = None
     requestedDate: str
+    preferredDate: Optional[str] = None
+    plannedStartTime: Optional[str] = "01:30"
+    plannedEndTime: Optional[str] = "04:30"
     preferredWindow: str
+    demandedDurationMins: Optional[int] = 180
     durationHours: float
+    demandedTime: Optional[str] = None
+    grantedTime: Optional[str] = None
+    actualStartTime: Optional[str] = None
+    actualEndTime: Optional[str] = None
+    burstDurationMins: Optional[int] = 0
+    trafficImpactStatus: Optional[str] = "Zero Delay / Regulated"
     requiresPowerBlock: bool = False
     requiresTrafficBlock: bool = True
     speedRestrictionKmph: Optional[int] = None
-    createdAt: str
+    notes: Optional[str] = None
+    hitlStatus: Optional[str] = "PENDING_REVIEW"
+    controllerRemarks: Optional[str] = None
+    controllerId: Optional[str] = None
+    reviewedAt: Optional[str] = None
+    createdBy: Optional[str] = "system"
+    createdAt: Optional[str] = None
+    updatedAt: Optional[str] = None
 
 
 class TaskCreate(BaseModel):
-    department: str
+    department: Optional[str] = None
     description: str
     location: str
     corridor: str
+    divisionId: Optional[str] = "DLI"
+    sectionName: Optional[str] = "NDLS-GZB"
+    lineType: Optional[str] = "UP Main"
+    stationFrom: Optional[str] = "NDLS"
+    stationTo: Optional[str] = "GZB"
     defectType: Optional[str] = "Track Geometry / Ballast Deficiency"
+    blockPurpose: Optional[str] = "Track & Overhead Maintenance"
     severity: Optional[str] = "High"
     durationHours: Optional[float] = 2.5
     preferredDate: Optional[str] = None
     requestedDate: Optional[str] = None
+    nominatedDate: Optional[str] = None
+    plannedStartTime: Optional[str] = "01:30"
+    plannedEndTime: Optional[str] = "04:30"
     preferredWindow: Optional[str] = "01:30 - 04:30"
     overdueDays: Optional[int] = 0
     requiresTrafficBlock: Optional[bool] = True
     requiresPowerBlock: Optional[bool] = False
     speedRestrictionKmph: Optional[int] = 30
+    trafficImpactStatus: Optional[str] = "Zero Delay / Regulated"
     notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Real-Time COA / TMS Stream Ingestion Models
+# ---------------------------------------------------------------------------
+class COAStreamItem(BaseModel):
+    division_id: Optional[str] = Field("DLI", alias="divisionId")
+    section_name: Optional[str] = Field("NDLS-GZB", alias="sectionName")
+    line_type: Optional[str] = Field("UP Main", alias="lineType")
+    station_from: Optional[str] = Field("NDLS", alias="stationFrom")
+    station_to: Optional[str] = Field("GZB", alias="stationTo")
+    nominated_date: Optional[str] = Field(None, alias="nominatedDate")
+    planned_start_time: Optional[str] = Field("01:30", alias="plannedStartTime")
+    planned_end_time: Optional[str] = Field("04:30", alias="plannedEndTime")
+    demanded_time: Optional[str] = Field(None, alias="demandedTime")
+    granted_time: Optional[str] = Field(None, alias="grantedTime")
+    actual_start_time: Optional[str] = Field(None, alias="actualStartTime")
+    actual_end_time: Optional[str] = Field(None, alias="actualEndTime")
+    burst_duration_mins: Optional[int] = Field(0, alias="burstDurationMins")
+    requesting_dept: Optional[str] = Field("Engineering", alias="requestingDept")
+    block_purpose: Optional[str] = Field("Deep Screening & Track Maintenance", alias="blockPurpose")
+    description: Optional[str] = "Rolling block demand"
+    traffic_impact_status: Optional[str] = Field("Zero Delay / Regulated", alias="trafficImpactStatus")
+    corridor: Optional[str] = "NDLS-GZB"
+    location: Optional[str] = "Section Km 24/2"
+    severity: Optional[str] = "High"
+    overdue_days: Optional[int] = Field(0, alias="overdueDays")
+    requires_power_block: Optional[bool] = Field(False, alias="requiresPowerBlock")
+    requires_traffic_block: Optional[bool] = Field(True, alias="requiresTrafficBlock")
+    speed_restriction_kmph: Optional[int] = Field(30, alias="speedRestrictionKmph")
+
+
+class COAStreamBatchRequest(BaseModel):
+    source_system: Optional[str] = "COA"  # COA | TMS | FOIS | ICMS
+    stream_id: Optional[str] = None
+    records: List[COAStreamItem]
+
+
+class COAStreamResponse(BaseModel):
+    success: bool
+    streamId: str
+    sourceSystem: str
+    recordsIngested: int
+    conflictsDetected: int
+    tasksCreated: List[dict]
+    timestamp: str
+
+
+# ---------------------------------------------------------------------------
+# Grounded Hallucination-Free RAG Knowledge Layer
+# ---------------------------------------------------------------------------
+class KnowledgeIngestRequest(BaseModel):
+    manualName: str  # G&SR | ACTM_VOL_II | IRPWM | BWM | ROLLING_BLOCK_2024
+    chapter: Optional[str] = None
+    ruleNumber: Optional[str] = None
+    title: str
+    content: str
+    tags: Optional[List[str]] = None
+
+
+class KnowledgeChunkOut(BaseModel):
+    id: str
+    manualName: str
+    chapter: Optional[str] = None
+    ruleNumber: Optional[str] = None
+    title: str
+    content: str
+    tags: List[str]
+    createdAt: Optional[str] = None
+
+
+class GroundedCitation(BaseModel):
+    manualName: str
+    chapter: Optional[str] = None
+    ruleNumber: Optional[str] = None
+    title: str
+    excerpt: str
+    verifiedGroundTruth: bool = True
+
+
+class RAGQueryRequest(BaseModel):
+    query: str
+    corridorContext: Optional[str] = None
+    strictGroundedOnly: Optional[bool] = True
+
+
+class RAGQueryResponse(BaseModel):
+    query: str
+    answerMarkdown: str
+    citations: List[GroundedCitation]
+    groundedInRules: bool
+    hallucinationCheckPassed: bool
+    liveSystemContext: Optional[Dict[str, Any]] = None
+    suggestedActions: Optional[List[dict]] = None
+    timestamp: str
+
+
+# ---------------------------------------------------------------------------
+# Human-in-the-Loop (HITL) Controller Review Models
+# ---------------------------------------------------------------------------
+class HITLReviewActionRequest(BaseModel):
+    taskId: Optional[str] = None
+    bundleId: Optional[str] = None
+    scheduleId: Optional[str] = None
+    action: str  # APPROVE | MODIFY | REJECT | OVERRIDE
+    modifiedStartTime: Optional[str] = None
+    modifiedEndTime: Optional[str] = None
+    modifiedDate: Optional[str] = None
+    modifiedSpeedRestriction: Optional[int] = None
+    remarks: str = "Controller review decision entered in accordance with G&SR."
+
+
+class HITLOverrideRequest(BaseModel):
+    taskId: str
+    reason: str
+    emergencyJustification: str
+    authorizationPasscode: Optional[str] = "CRIS@2026"
+
+
+class HITLReviewResponse(BaseModel):
+    reviewId: str
+    entityId: str
+    action: str
+    status: str
+    controllerName: str
+    digitalSignature: str
+    timestamp: str
+    remarks: str
 
 
 # ---------------------------------------------------------------------------
@@ -127,26 +320,11 @@ class Bundle(BaseModel):
     windowId: Optional[str] = None
     downtimeSavedHours: float
     status: str = "Candidate"
-    
-# class OptimizationResponse(BaseModel):
-#     ...
-#     scheduledBlocks: List[ScheduledBlock]
-#     bundles: List[Bundle] = Field(default_factory=list)   # <-- add this line
-#     status: str = "SUCCESS"
+
 
 # ---------------------------------------------------------------------------
 # Optimization engine
 # ---------------------------------------------------------------------------
-# class DateRange(BaseModel):
-#     start: str
-#     end: str
-
-
-# class OptimizationRequest(BaseModel):
-#     corridors: List[str]
-#     dateRange: DateRange
-#     maxBlockDurationHours: float = 4.0
-#     safetyBufferMinutes: int = 15
 class DateRange(BaseModel):
     start: Optional[str] = None
     end: Optional[str] = None
@@ -157,6 +335,7 @@ class OptimizationRequest(BaseModel):
     dateRange: Optional[DateRange] = None
     maxBlockDurationHours: float = 4.0
     safetyBufferMinutes: int = 15
+
 
 class ScheduledBlock(BaseModel):
     id: str

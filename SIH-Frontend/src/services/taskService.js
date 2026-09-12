@@ -1,49 +1,56 @@
 import { apiClient, USE_MOCK } from './apiClient';
 import { MOCK_TASKS } from '../data/mockData';
 
-// Maintain in-memory state for mock CRUD operations
 let tasksState = [...MOCK_TASKS];
 
 const normalizeTask = (t) => {
   if (!t) return t;
-  const dateVal = t.requestedDate || t.preferredDate || t.requested_date || t.preferred_date || new Date().toISOString().slice(0, 10);
-  const windowVal = t.preferredWindow || t.preferred_window || '01:30 - 04:30';
+  const dateVal = t.requestedDate || t.preferredDate || t.nominatedDate || t.requested_date || t.preferred_date || new Date().toISOString().slice(0, 10);
+  const windowVal = t.preferredWindow || t.preferred_window || `${t.plannedStartTime || '01:30'} - ${t.plannedEndTime || '04:30'}`;
   const durationVal = Number(t.durationHours || t.duration_hours || 2.5);
   const defectVal = t.defectType || t.defect_type || 'Track Geometry / Ballast Deficiency';
   const priorityVal = Number(t.priorityScore || t.priority_score || 50);
 
   return {
     ...t,
+    divisionId: t.divisionId || t.division_id || 'DLI',
+    sectionName: t.sectionName || t.section_name || t.corridor || 'NDLS-GZB',
+    lineType: t.lineType || t.line_type || 'UP Main',
+    stationFrom: t.stationFrom || t.station_from || 'NDLS',
+    stationTo: t.stationTo || t.station_to || 'GZB',
     requestedDate: dateVal,
     preferredDate: dateVal,
+    nominatedDate: t.nominatedDate || t.nominated_date || dateVal,
     preferredWindow: windowVal,
     durationHours: durationVal,
+    demandedTime: t.demandedTime || t.demanded_time || `${durationVal} hrs`,
+    grantedTime: t.grantedTime || t.granted_time || (t.status === 'Scheduled' ? `${durationVal} hrs` : null),
+    burstDurationMins: Number(t.burstDurationMins || t.burst_duration_mins || 0),
     defectType: defectVal,
+    blockPurpose: t.blockPurpose || t.block_purpose || defectVal,
     priorityScore: priorityVal,
-    status: t.status || 'Pending'
+    status: t.status || 'Pending',
+    hitlStatus: t.hitlStatus || t.hitl_status || (t.status === 'Scheduled' ? 'CONTROLLER_APPROVED' : 'PENDING_REVIEW'),
+    controllerRemarks: t.controllerRemarks || t.controller_remarks,
+    controllerId: t.controllerId || t.controller_id,
+    trafficImpactStatus: t.trafficImpactStatus || t.traffic_impact_status || 'Zero Delay / Regulated'
   };
-};
-
-const notifyDataChanged = (action, task) => {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('railblock:task_created', { detail: normalizeTask(task) }));
-    window.dispatchEvent(new CustomEvent('railblock:data_changed', { detail: { action, task: normalizeTask(task) } }));
-  }
 };
 
 export const taskService = {
   async getTasks(filters = {}) {
     let rawList = null;
-    if (!USE_MOCK) {
-      try {
-        const res = await apiClient.get('/tasks', filters);
-        if (res && Array.isArray(res)) rawList = res;
-      } catch (err) {
-        console.warn('Falling back to local tasks state:', err);
+    try {
+      const res = await apiClient.get('/tasks', filters);
+      if (res && Array.isArray(res)) rawList = res;
+    } catch (err) {
+      if (USE_MOCK) {
+        console.warn('Backend unavailable, using local mock tasks:', err);
+      } else {
+        throw err;
       }
     }
 
-    await apiClient.simulateDelay(100);
     if (!rawList) {
       rawList = [...tasksState];
     }
@@ -69,7 +76,8 @@ export const taskService = {
         (t.id && t.id.toLowerCase().includes(q)) ||
         (t.description && t.description.toLowerCase().includes(q)) ||
         (t.location && t.location.toLowerCase().includes(q)) ||
-        (t.defectType && t.defectType.toLowerCase().includes(q))
+        (t.defectType && t.defectType.toLowerCase().includes(q)) ||
+        (t.sectionName && t.sectionName.toLowerCase().includes(q))
       );
     }
 
@@ -77,16 +85,13 @@ export const taskService = {
   },
 
   async getTaskById(id) {
-    if (!USE_MOCK) {
-      try {
-        const res = await apiClient.get(`/tasks/${id}`);
-        if (res) return normalizeTask(res);
-      } catch (err) {
-        // Fallback
-      }
+    try {
+      const res = await apiClient.get(`/tasks/${id}`);
+      if (res) return normalizeTask(res);
+    } catch (err) {
+      if (!USE_MOCK) throw err;
     }
 
-    await apiClient.simulateDelay(80);
     const task = tasksState.find(t => t.id === id);
     if (!task) throw new Error(`Task with ID ${id} not found`);
     return normalizeTask(task);
@@ -94,118 +99,82 @@ export const taskService = {
 
   async createTask(taskData) {
     let created = null;
-    if (!USE_MOCK) {
-      try {
-        const res = await apiClient.post('/tasks', {
-          department: taskData.department || 'Engineering',
-          description: taskData.description || 'Maintenance Block Request',
-          location: taskData.location || 'Section Km 15/0',
-          corridor: taskData.corridor || 'NDLS-GZB',
-          defectType: taskData.defectType || 'Track Geometry / Ballast Deficiency',
-          severity: taskData.severity || 'High',
-          durationHours: Number(taskData.durationHours || 2.5),
-          preferredDate: taskData.preferredDate || taskData.requestedDate || new Date().toISOString().slice(0, 10),
-          requestedDate: taskData.preferredDate || taskData.requestedDate || new Date().toISOString().slice(0, 10),
-          preferredWindow: taskData.preferredWindow || '01:30 - 04:30',
-          overdueDays: Number(taskData.overdueDays || 5),
-          requiresTrafficBlock: Boolean(taskData.requiresTrafficBlock ?? true),
-          requiresPowerBlock: Boolean(taskData.requiresPowerBlock ?? false),
-          speedRestrictionKmph: Number(taskData.speedRestrictionKmph || 30),
-          notes: taskData.notes || ''
-        });
-        if (res) created = res;
-      } catch (err) {
-        console.warn('Backend task creation failed, falling back to local creation:', err);
-      }
+    try {
+      const payload = {
+        department: taskData.department || 'Engineering',
+        description: taskData.description || 'Maintenance Block Request',
+        location: taskData.location || 'Section Km 15/0',
+        corridor: taskData.corridor || 'NDLS-GZB',
+        divisionId: taskData.divisionId || 'DLI',
+        sectionName: taskData.sectionName || taskData.corridor || 'NDLS-GZB',
+        lineType: taskData.lineType || 'UP Main',
+        stationFrom: taskData.stationFrom || 'NDLS',
+        stationTo: taskData.stationTo || 'GZB',
+        defectType: taskData.defectType || 'Track Geometry / Ballast Deficiency',
+        blockPurpose: taskData.blockPurpose || taskData.defectType || 'Track & Overhead Maintenance',
+        severity: taskData.severity || 'High',
+        durationHours: Number(taskData.durationHours || 2.5),
+        preferredDate: taskData.preferredDate || taskData.requestedDate || new Date().toISOString().slice(0, 10),
+        requestedDate: taskData.preferredDate || taskData.requestedDate || new Date().toISOString().slice(0, 10),
+        nominatedDate: taskData.nominatedDate || taskData.requestedDate || new Date().toISOString().slice(0, 10),
+        plannedStartTime: taskData.plannedStartTime || '01:30',
+        plannedEndTime: taskData.plannedEndTime || '04:30',
+        preferredWindow: taskData.preferredWindow || '01:30 - 04:30',
+        overdueDays: Number(taskData.overdueDays || 0),
+        requiresTrafficBlock: Boolean(taskData.requiresTrafficBlock ?? true),
+        requiresPowerBlock: Boolean(taskData.requiresPowerBlock ?? false),
+        speedRestrictionKmph: Number(taskData.speedRestrictionKmph || 30),
+        trafficImpactStatus: taskData.trafficImpactStatus || 'Zero Delay / Regulated',
+        notes: taskData.notes || ''
+      };
+
+      const res = await apiClient.post('/tasks', payload);
+      if (res) created = res;
+    } catch (err) {
+      if (!USE_MOCK) throw err;
     }
 
     if (!created) {
-      await apiClient.simulateDelay(150);
       const idNum = Math.floor(100 + Math.random() * 900);
-      const prefix = taskData.department?.includes('Traction') ? 'TRD' : taskData.department?.includes('Signal') ? 'SNT' : 'ENG';
-      
-      const severityMap = { 'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1 };
-      const weight = severityMap[taskData.severity] || 2;
-      const overdue = Number(taskData.overdueDays || 5);
-      const score = Math.min(100, Math.round(weight * 20 + overdue * 1.5));
-      const dateVal = taskData.preferredDate || taskData.requestedDate || new Date().toISOString().slice(0, 10);
-
       created = {
-        id: `TSK-${prefix}-${idNum}`,
-        source: prefix === 'ENG' ? 'TMS' : prefix === 'TRD' ? 'TDMS' : 'SMMS',
-        department: taskData.department || 'Engineering',
-        defectType: taskData.defectType || 'Track Geometry / Ballast Deficiency',
-        description: taskData.description || 'Maintenance Work Order',
-        location: taskData.location || 'Section Km 14/0',
-        corridor: taskData.corridor || 'NDLS-GZB',
-        severity: taskData.severity || 'High',
+        id: `TSK-MOCK-${idNum}`,
+        ...taskData,
         status: 'Pending',
-        overdueDays: overdue,
-        severityWeight: weight,
-        priorityScore: score,
-        requestedDate: dateVal,
-        preferredDate: dateVal,
-        preferredWindow: taskData.preferredWindow || '01:30 - 04:30',
-        durationHours: Number(taskData.durationHours || 2.5),
-        requiresPowerBlock: Boolean(taskData.requiresPowerBlock),
-        requiresTrafficBlock: Boolean(taskData.requiresTrafficBlock ?? true),
-        speedRestrictionKmph: Number(taskData.speedRestrictionKmph || 30),
-        notes: taskData.notes || '',
-        createdAt: new Date().toISOString(),
-        ...taskData
+        createdAt: new Date().toISOString()
       };
+      tasksState.unshift(created);
     }
 
-    const finalNormalized = normalizeTask(created);
-    tasksState = [finalNormalized, ...tasksState.filter(t => t.id !== finalNormalized.id)];
-    notifyDataChanged('create', finalNormalized);
-    return finalNormalized;
-  },
-
-  addDirectTask(task) {
-    const normalized = normalizeTask(task);
-    tasksState = [normalized, ...tasksState.filter(t => t.id !== normalized.id)];
-    notifyDataChanged('create', normalized);
-    return normalized;
+    return normalizeTask(created);
   },
 
   async updateTask(id, taskData) {
     let updated = null;
-    if (!USE_MOCK) {
-      try {
-        const res = await apiClient.put(`/tasks/${id}`, taskData);
-        if (res) updated = res;
-      } catch (err) {
-        // fallback
+    try {
+      const res = await apiClient.put(`/tasks/${id}`, taskData);
+      if (res) updated = res;
+    } catch (err) {
+      if (!USE_MOCK) throw err;
+    }
+
+    if (!updated) {
+      const idx = tasksState.findIndex(t => t.id === id);
+      if (idx !== -1) {
+        tasksState[idx] = { ...tasksState[idx], ...taskData };
+        updated = tasksState[idx];
       }
     }
 
-    await apiClient.simulateDelay(120);
-    tasksState = tasksState.map(t => t.id === id ? normalizeTask({ ...t, ...taskData }) : t);
-    updated = updated ? normalizeTask(updated) : tasksState.find(t => t.id === id);
-    notifyDataChanged('update', updated);
-    return updated;
+    return normalizeTask(updated);
   },
 
   async deleteTask(id) {
-    if (!USE_MOCK) {
-      try {
-        await apiClient.delete(`/tasks/${id}`);
-      } catch (err) {
-        // fallback
-      }
+    try {
+      await apiClient.delete(`/tasks/${id}`);
+    } catch (err) {
+      if (!USE_MOCK) throw err;
     }
-
-    await apiClient.simulateDelay(100);
-    const deletedTask = tasksState.find(t => t.id === id);
     tasksState = tasksState.filter(t => t.id !== id);
-    notifyDataChanged('delete', deletedTask);
     return true;
-  },
-
-  getRawState() {
-    return tasksState.map(normalizeTask);
   }
 };
-
-export const blockRequestService = taskService;
