@@ -362,6 +362,14 @@ class ScheduledBlock(BaseModel):
     controllerApproval: str = "Pending"
     speedRestrictionKmph: Optional[int] = None
     efficiencyGainPercent: float = 0.0
+    requestedDurationHours: Optional[float] = None
+    predictedDurationHours: Optional[float] = None
+    overrunRiskPercent: Optional[float] = None
+    recommendedBufferMinutes: Optional[int] = None
+    planningDurationHours: Optional[float] = None
+    mlAssisted: Optional[bool] = True
+    constraintStatus: Optional[Dict[str, bool]] = None
+    selectionReason: Optional[str] = None
 
 
 class OptimizationSummary(BaseModel):
@@ -375,16 +383,19 @@ class OptimizationSummary(BaseModel):
     downtimeSavedHours: float
     downtimeSavingPercent: float
     networkUtilization: str
+    mlAssistedTasks: int = 0
+    averageOverrunRiskPercent: float = 0.0
 
 
 class OptimizationResponse(BaseModel):
     optimizationId: str
-    engine: str = "Greedy Constraint Satisfaction + Shadow Bundling Solver (v2.4)"
+    engine: str = "ML-Assisted 2-Pass Greedy Constraint Satisfaction + Shadow Bundling Solver (v3.0)"
     executionTimeMs: int
     timestamp: str
     summary: OptimizationSummary
     scheduledBlocks: List[ScheduledBlock]
     bundles: List[Bundle] = Field(default_factory=list)
+    mlAssisted: bool = True
     status: str = "SUCCESS"
 
 

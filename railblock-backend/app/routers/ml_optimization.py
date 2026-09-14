@@ -64,7 +64,7 @@ _SEVERITY_FACTORS = {
 }
 
 
-def _predict_task_ml(task: dict, weather_factor: str = "Clear", night_shift: bool = True, track_multiplier: float = 1.0) -> MLTaskPrediction:
+def predict_task_ml(task: dict, weather_factor: str = "Clear", night_shift: bool = True, track_multiplier: float = 1.0) -> MLTaskPrediction:
     base_duration = float(task.get("durationHours", 2.0))
     dept = task.get("department", "Engineering")
     corridor = task.get("corridor", "NDLS-GZB")
@@ -146,6 +146,23 @@ def _predict_task_ml(task: dict, weather_factor: str = "Clear", night_shift: boo
     )
 
 
+# Backward-compatible alias
+_predict_task_ml = predict_task_ml
+
+
+def predict_tasks_batch(tasks: List[dict], weather_factor: str = "Clear", night_shift: bool = True, track_multiplier: float = 1.0) -> List[MLTaskPrediction]:
+    """In-memory batch prediction helper for zero-overhead internal use by CSP solver."""
+    return [
+        predict_task_ml(
+            t,
+            weather_factor=weather_factor,
+            night_shift=night_shift,
+            track_multiplier=track_multiplier,
+        )
+        for t in tasks
+    ]
+
+
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.db_models import TaskDB
@@ -167,15 +184,12 @@ def predict_durations(body: MLDurationBatchRequest, db: Session = Depends(get_db
     if not target_tasks:
         target_tasks = all_tasks[:10]  # fallback to sample
 
-    predictions: List[MLTaskPrediction] = [
-        _predict_task_ml(
-            t,
-            weather_factor=body.weatherFactor or "Clear",
-            night_shift=body.nightShift if body.nightShift is not None else True,
-            track_multiplier=body.trackComplexityMultiplier or 1.0,
-        )
-        for t in target_tasks
-    ]
+    predictions: List[MLTaskPrediction] = predict_tasks_batch(
+        target_tasks,
+        weather_factor=body.weatherFactor or "Clear",
+        night_shift=body.nightShift if body.nightShift is not None else True,
+        track_multiplier=body.trackComplexityMultiplier or 1.0,
+    )
 
     high_risk = sum(1 for p in predictions if p.riskLevel == "High")
     avg_overrun = round(sum(p.overrunRiskPercent for p in predictions) / len(predictions), 1) if predictions else 0.0

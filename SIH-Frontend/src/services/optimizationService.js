@@ -30,7 +30,7 @@ export const optimizationService = {
 
     return {
       optimizationId: `OPT-IR-${Date.now().toString().slice(-6)}`,
-      engine: 'Greedy Constraint Satisfaction + Shadow Bundling Solver (v2.4)',
+      engine: 'ML-Assisted 2-Pass Greedy Constraint Satisfaction + Shadow Bundling Solver (v3.0)',
       executionTimeMs: 1420,
       timestamp: new Date().toISOString(),
       summary: {
@@ -43,10 +43,13 @@ export const optimizationService = {
         optimizedDowntimeHours: 72,
         downtimeSavedHours: 48,
         downtimeSavingPercent: 40,
-        networkUtilization: '88.4%'
+        networkUtilization: '88.4%',
+        mlAssistedTasks: 42,
+        averageOverrunRiskPercent: 18.5
       },
       scheduledBlocks: MOCK_SCHEDULES,
       bundles: MOCK_BUNDLES,
+      mlAssisted: true,
       status: 'SUCCESS'
     };
   },

@@ -480,6 +480,27 @@ export const OptimizationEngine = () => {
                           {block.date} • {block.startTime} – {block.endTime} ({block.durationHours} hrs)
                         </div>
 
+                        {/* ML Predictive Tag */}
+                        {block.mlAssisted && (
+                          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                            <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] font-mono font-bold flex items-center gap-1">
+                              <BrainCircuit className="w-3 h-3 text-indigo-600" />
+                              <span>ML-Informed</span>
+                            </span>
+                            {block.overrunRiskPercent !== undefined && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border ${
+                                block.overrunRiskPercent >= 45
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : block.overrunRiskPercent >= 22
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              }`}>
+                                {block.overrunRiskPercent}% Risk (+{block.recommendedBufferMinutes || 0}m buf)
+                              </span>
+                            )}
+                          </div>
+                        )}
+
                         <div className="mt-3 p-2 bg-white rounded border border-slate-200 space-y-1.5 text-[11px]">
                           <div className="flex items-center justify-between">
                             <span className="text-slate-400">Departments:</span>
@@ -861,6 +882,74 @@ export const OptimizationEngine = () => {
               <div className="text-[10px] text-slate-400 uppercase font-bold">Approval Status</div>
               <div className="font-semibold text-slate-800">{selectedBlock.controllerApproval}</div>
             </div>
+
+            {/* ML Predictive Parameters Strip */}
+            {selectedBlock.mlAssisted && (
+              <div className="p-3.5 bg-indigo-50/50 rounded-lg border border-indigo-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-indigo-950 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                    <BrainCircuit className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>ML Predictive Parameters (Soft Inputs)</span>
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 font-bold">
+                    v3.0 ML-CSP
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-[11px]">
+                  <div className="p-2 bg-white rounded border border-indigo-100">
+                    <div className="text-[9px] text-slate-400 uppercase font-bold">Requested</div>
+                    <div className="font-mono font-bold text-slate-800 mt-0.5">{selectedBlock.requestedDurationHours || selectedBlock.durationHours} hrs</div>
+                  </div>
+                  <div className="p-2 bg-white rounded border border-indigo-100">
+                    <div className="text-[9px] text-slate-400 uppercase font-bold">ML Predicted</div>
+                    <div className="font-mono font-bold text-indigo-700 mt-0.5">{selectedBlock.predictedDurationHours || selectedBlock.durationHours} hrs</div>
+                  </div>
+                  <div className="p-2 bg-white rounded border border-indigo-100">
+                    <div className="text-[9px] text-slate-400 uppercase font-bold">Overrun Risk</div>
+                    <div className="font-mono font-bold text-rose-600 mt-0.5">{selectedBlock.overrunRiskPercent || 0}%</div>
+                  </div>
+                  <div className="p-2 bg-white rounded border border-indigo-100">
+                    <div className="text-[9px] text-slate-400 uppercase font-bold">Buffer Added</div>
+                    <div className="font-mono font-bold text-amber-600 mt-0.5">+{selectedBlock.recommendedBufferMinutes || 0} min</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Hard Operational Constraints Checklist */}
+            <div className="p-3.5 bg-emerald-50/40 rounded-lg border border-emerald-200 space-y-2">
+              <div className="text-[11px] font-bold text-emerald-950 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Hard Operational Constraints (Enforced by 2-Pass CSP)</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="flex items-center gap-1.5 text-emerald-800">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                  <span>Corridor Timetable Match</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-emerald-800">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                  <span>Physical Capacity Limit (&le;4.0h)</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-emerald-800">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                  <span>25kV Traction / Traffic Isolation</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-emerald-800">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                  <span>Zero Spatial Clash Conflicts</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Explainable Decision Rationale */}
+            {selectedBlock.selectionReason && (
+              <div className="p-3 bg-slate-100 rounded-lg border border-slate-200 text-[11px] space-y-1">
+                <div className="text-[10px] text-slate-500 uppercase font-bold">Selection Rationale</div>
+                <div className="text-slate-700 font-mono leading-relaxed">{selectedBlock.selectionReason}</div>
+              </div>
+            )}
 
             <div>
               <div className="text-[10px] text-slate-400 uppercase font-bold mb-1.5">Bundled Tasks in this Window ({selectedBlock.taskIds.length})</div>
